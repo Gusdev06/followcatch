@@ -1,0 +1,4 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+body { @apply bg-[#fff8f8] text-ink font-sans antialiased; }
