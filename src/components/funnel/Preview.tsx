@@ -1,9 +1,8 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { FollowItem, Gender, Profile } from "../../lib/types";
+import { isLocked, type FollowItem, type FollowList, type Gender, type LockedItem, type Profile } from "../../lib/types";
 import { Button } from "../ui";
 import type { Slot } from "./useSearch";
-import type { FollowList } from "../../lib/types";
 import { searchHref } from "./SearchBar";
 import { Arrow, Avatar, fmt, IgGlyph, Spinner, VerifiedBadge } from "./shared";
 
@@ -23,7 +22,7 @@ function TopRow({ username }: { username: string }) {
 }
 
 /* ---------- Similar accounts ---------- */
-function Similar({ items }: { items: Profile["similar"] }) {
+export function Similar({ items, hrefFor = searchHref }: { items: Profile["similar"]; hrefFor?: (u: string) => string }) {
   const ref = useRef<HTMLDivElement>(null);
   if (!items.length) return null;
   const scroll = (d: number) => ref.current?.scrollBy({ left: d * 280, behavior: "smooth" });
@@ -40,7 +39,7 @@ function Similar({ items }: { items: Profile["similar"] }) {
         {items.map((a) => (
           <Link
             key={a.username}
-            to={searchHref(a.username)}
+            to={hrefFor(a.username)}
             className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-[#fafbfc] py-1 pl-1 pr-3.5 transition hover:border-pink-200 hover:bg-pink-50/60"
           >
             <Avatar url={a.picUrl} name={a.username} size={32} />
@@ -56,7 +55,7 @@ function Similar({ items }: { items: Profile["similar"] }) {
 }
 
 /* ---------- card do perfil ---------- */
-function ProfileBlock({ p }: { p: Profile }) {
+export function ProfileBlock({ p }: { p: Profile }) {
   const stats = [[p.posts, "Posts"], [p.followers, "Followers"], [p.following, "Following"]] as const;
   return (
     <div className="px-4 pt-5 sm:px-5">
@@ -89,7 +88,7 @@ function ProfileBlock({ p }: { p: Profile }) {
 }
 
 /* ---------- cards por gênero ---------- */
-const LABEL: Record<Gender, { word: string; emoji: string }> = {
+export const LABEL: Record<Gender, { word: string; emoji: string }> = {
   female: { word: "girls", emoji: "👧" },
   male: { word: "boys", emoji: "👦" },
   other: { word: "others", emoji: "👤" },
@@ -103,11 +102,18 @@ export function genderOrder(g: Gender | null): Gender[] {
   return g === "female" ? ["male", "female", "other"] : ["female", "male", "other"];
 }
 
-type Group = { gender: Gender; items: FollowItem[]; recency: string };
+type Item = FollowItem | LockedItem;
+type Group = { gender: Gender; items: Item[]; count: number; recency: string };
 
-function groupItems(items: FollowItem[], target: Gender | null): Group[] {
+/** Teaser do contrato F2: os itens locked ocupam lugar e contam, mas não têm @/foto. `total` manda na contagem. */
+function groupItems(list: FollowList, target: Gender | null): Group[] {
+  const n = list.items.length;
+  const scale = n > 0 && list.total > n ? list.total / n : 1;
   const groups = genderOrder(target)
-    .map((gender) => ({ gender, items: items.filter((i) => i.gender === gender).sort((a, b) => a.rank - b.rank), recency: "" }))
+    .map((gender) => {
+      const items = list.items.filter((i) => i.gender === gender).sort((a, b) => a.rank - b.rank);
+      return { gender, items, count: Math.max(items.length, Math.round(items.length * scale)), recency: "" };
+    })
     .filter((g) => g.items.length > 0);
   // rótulo de tempo honesto: só a ordem relativa do item mais novo de cada grupo
   [...groups].sort((a, b) => a.items[0].rank - b.items[0].rank).forEach((g, i) => { g.recency = RECENCY[i] ?? "earlier"; });
@@ -120,10 +126,14 @@ const Hidden = ({ i }: { i: number }) => (
 );
 
 function GroupCard({ g, target, kind, idx }: { g: Group; target: string; kind: "following" | "followers"; idx: number }) {
-  const [first, ...rest] = g.items;
-  const blurred = Math.min(2, rest.length);
-  const others = g.items.length - 1 - blurred;
-  const names: ReactNode[] = [<Handle key="f">@{first.username}</Handle>, ...Array.from({ length: blurred }, (_, i) => <Hidden key={i} i={idx * 2 + i} />)];
+  const first = g.items.find((i): i is FollowItem => !isLocked(i));
+  const restLen = g.count - (first ? 1 : 0);
+  const blurred = Math.min(first ? 2 : 3, restLen);
+  const others = restLen - blurred;
+  const names: ReactNode[] = [
+    ...(first ? [<Handle key="f">@{first.username}</Handle>] : []),
+    ...Array.from({ length: blurred }, (_, i) => <Hidden key={i} i={idx * 3 + i} />),
+  ];
   const list = names.map((n, i) => (
     <span key={i}>
       {n}
@@ -135,9 +145,9 @@ function GroupCard({ g, target, kind, idx }: { g: Group; target: string; kind: "
   return (
     <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2.5 rounded-card border border-line bg-white p-3.5 sm:grid-cols-[auto_1fr_auto] sm:gap-x-4 sm:p-4">
       <div className="order-1 flex shrink-0 items-center">
-        <Avatar url={first.picUrl} name={first.username} size={40} className="relative z-30 ring-2 ring-white" />
-        {rest.slice(0, 2).map((a, i) => (
-          <Avatar key={i} url={a.picUrl} name="" size={40} blur className={`relative -ml-3 ring-2 ring-white ${i === 0 ? "z-20" : "z-10"}`} />
+        {first && <Avatar url={first.picUrl} name={first.username} size={40} className="relative z-30 ring-2 ring-white" />}
+        {Array.from({ length: Math.min(first ? 2 : 3, blurred) }, (_, i) => (
+          <Avatar key={i} url="" name="" size={40} blur className={`relative ring-2 ring-white ${first || i > 0 ? "-ml-3" : ""} ${i === 0 ? "z-20" : "z-10"}`} />
         ))}
       </div>
       <div className="order-2 flex items-center justify-end gap-2 sm:order-3">
@@ -175,7 +185,7 @@ function ListPanel({ slot, kind, target, gender }: { slot: Slot<FollowList>; kin
             : `We couldn't load the ${kind} list right now. Refresh in a minute.`}
       </div>
     );
-  const groups = groupItems(slot.data?.items ?? [], gender);
+  const groups = slot.data ? groupItems(slot.data, gender) : [];
   if (!groups.length)
     return <div className="px-4 py-8 text-center text-sm text-gray-500">No {kind} to show for @{target} yet.</div>;
   return (

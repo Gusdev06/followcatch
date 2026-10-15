@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { Footer, Header } from "../components/ui";
 import { ErrorCard } from "../components/funnel/ErrorCard";
 import { LoadingCard, type Stage } from "../components/funnel/LoadingCard";
@@ -7,6 +7,8 @@ import { Preview, StickyUnlock } from "../components/funnel/Preview";
 import { SearchBar } from "../components/funnel/SearchBar";
 import { Sparkles } from "../components/funnel/shared";
 import { useSearch } from "../components/funnel/useSearch";
+import { isMock } from "../components/funnel/mock";
+import { isActive, useMe } from "../lib/session";
 
 // Ritmo do loading: dura o tempo real do perfil, nunca menos que 6 s no total.
 const FIND_MIN = 3000; // "Finding profile…" no mínimo
@@ -16,6 +18,9 @@ const FOUND_MS = 1600; // "Profile Found!" + confete
 export default function Search() {
   const [params] = useSearchParams();
   const u = params.get("u") ?? "";
+  const { me } = useMe();
+  // Assinante vê a lista completa no dashboard, sem blur.
+  if (isActive(me)) return <Navigate to={`/app?u=${encodeURIComponent(u)}${isMock() ? "&mock=1" : ""}`} replace />;
   return <SearchFlow key={u} raw={u} />;
 }
 

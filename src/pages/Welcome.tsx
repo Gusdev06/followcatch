@@ -1,36 +1,80 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button, Footer, Header } from "../components/ui";
+import { isMock, mockApi } from "../components/funnel/mock";
+import { Sparkles, Spinner } from "../components/funnel/shared";
 import { site } from "../config/site";
+import { api } from "../lib/api";
+import { isActive, readPending, useMe } from "../lib/session";
+import type { Me } from "../lib/types";
 
-// Volta do checkout da PaymentKit (success URL). O acesso pago é liberado pelo webhook quando o backend subir.
+type State = { s: "loading" } | { s: "ok"; me: Me } | { s: "error" };
+
+const planName = (me: Me) => site.plans.find((p) => p.id === me.plan)?.name ?? "FollowCatch";
+
+// Volta do checkout da PaymentKit: confere a sessão na hora (não espera o webhook).
 export default function Welcome() {
   const [params] = useSearchParams();
-  const plan = site.plans.find((p) => p.id === params.get("plan")) ?? site.plans[0];
-  const cycle = params.get("cycle") === "quarterly" ? "quarterly" : "weekly";
-  let username = "";
-  try { username = JSON.parse(localStorage.getItem("fc_pending_plan") || "{}").username || ""; } catch { /* sem storage */ }
+  const session = params.get("session") ?? params.get("session_id") ?? "";
+  const { setMe } = useMe();
+  const [state, setState] = useState<State>({ s: "loading" });
+  const pendingU = readPending().username ?? "";
 
-  useEffect(() => { document.title = "Welcome to FollowCatch"; }, []);
+  const check = useCallback(async () => {
+    setState({ s: "loading" });
+    try {
+      let me: Me | null;
+      if (isMock()) me = await mockApi.welcome(session);
+      else if (session) me = await api.welcome(session);
+      else me = await api.me(); // payment link antigo volta sem session: confia no webhook
+      if (!me || !isActive(me)) throw new Error("not active yet");
+      setMe(me);
+      setState({ s: "ok", me });
+    } catch {
+      setState({ s: "error" });
+    }
+  }, [session, setMe]);
+
+  useEffect(() => { document.title = "Welcome to FollowCatch"; void check(); }, [check]);
+
+  const dash = `/app${pendingU ? `?u=${encodeURIComponent(pendingU)}` : ""}${isMock() ? `${pendingU ? "&" : "?"}mock=1` : ""}`;
 
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-screen flex-col">
       <Header />
-      <main className="mx-auto max-w-lg px-4 py-16 text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-cta text-3xl text-white shadow-lg">✓</div>
-        <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-ink">You're in!</h1>
-        <p className="mt-3 text-[15px] text-gray-600">
-          Thanks! Your <b>{plan.name}</b> ({cycle}) subscription is active.
-        </p>
-        <p className="mt-2 text-[15px] text-gray-600">
-          We'll email your access details to the address you used at checkout.
-        </p>
-        {username && (
-          <div className="mt-8">
-            <Button href={`/search?u=${username}`} variant="cta">See @{username} again</Button>
-          </div>
-        )}
-        <p className="mt-8 text-xs text-gray-500">Questions? <a className="underline" href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a></p>
+      <main className="relative isolate flex flex-1 items-start justify-center px-4 py-12 sm:py-16">
+        <Sparkles />
+        <div className="w-full max-w-[448px] rounded-[22px] border border-pink-200 bg-gradient-to-br from-[#f6efff] via-[#fff0f5] to-[#fff6ec] p-6 text-center shadow-[0_30px_70px_-35px_rgba(225,48,108,0.45)] sm:p-8" role="status" aria-live="polite">
+          {state.s === "loading" && (
+            <>
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-sm"><Spinner className="h-8 w-8" /></div>
+              <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">Confirming your payment…</h1>
+              <p className="mt-2 text-[15px] text-gray-600">This usually takes a few seconds. Please keep this page open.</p>
+            </>
+          )}
+          {state.s === "ok" && (
+            <>
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-cta text-3xl text-white shadow-lg" aria-hidden>✓</div>
+              <h1 className="mt-5 text-3xl font-extrabold tracking-tight text-ink">You're in!</h1>
+              <p className="mt-3 text-[15px] text-gray-600">
+                Your <b className="text-ink">{planName(state.me)}</b>{state.me.cycle ? ` (${state.me.cycle})` : ""} plan is active for <b className="text-ink">{state.me.email}</b>.
+              </p>
+              <p className="mt-1 text-[15px] text-gray-600">
+                {pendingU ? <>Full lists for <b className="text-ink">@{pendingU}</b> are ready.</> : "Full following and follower lists are unlocked."}
+              </p>
+              <Button href={dash} className="mt-7 w-full !rounded-xl !py-3.5 text-base">Open dashboard</Button>
+            </>
+          )}
+          {state.s === "error" && (
+            <>
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white text-3xl shadow-sm" aria-hidden>⏳</div>
+              <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">We're confirming your payment</h1>
+              <p className="mt-2 text-[15px] text-gray-600">Refresh in a minute. If you were charged, your plan will turn on automatically.</p>
+              <Button onClick={() => void check()} className="mt-7 w-full !rounded-xl !py-3.5 text-base">Refresh</Button>
+              <p className="mt-5 text-xs text-gray-500">Still stuck after a few minutes? <a className="underline" href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a></p>
+            </>
+          )}
+        </div>
       </main>
       <Footer />
     </div>

@@ -50,10 +50,10 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 export const inputCls =
   "w-full rounded-xl border-2 border-pink-100 bg-white px-4 py-3 text-[15px] text-ink outline-none transition placeholder:text-gray-400 focus:border-pink-300";
 
-export function SubmitButton({ children }: { children: ReactNode }) {
+export function SubmitButton({ children, disabled = false }: { children: ReactNode; disabled?: boolean }) {
   return (
-    <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-cta px-4 py-3.5 text-base font-bold text-white shadow-[0_10px_24px_-10px_rgba(255,45,85,0.7)] transition hover:brightness-105 active:scale-[0.99]">
-      {children} <Arrow />
+    <button type="submit" disabled={disabled} aria-busy={disabled} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cta px-4 py-3.5 text-base font-bold text-white shadow-[0_10px_24px_-10px_rgba(255,45,85,0.7)] transition hover:brightness-105 active:scale-[0.99] disabled:cursor-wait disabled:opacity-70">
+      {children} {!disabled && <Arrow />}
     </button>
   );
 }

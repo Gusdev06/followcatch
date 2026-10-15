@@ -1,23 +1,52 @@
-import type { ApiError, FollowList, Profile } from "./types";
+import type { ApiError, Cycle, FollowList, Me, PlanId, Profile } from "./types";
 
 export class ApiFail extends Error {
-  constructor(public code: ApiError["error"], message: string) { super(message); }
+  constructor(public code: ApiError["error"], message: string, public status = 0) { super(message); }
 }
 
-async function get<T>(path: string): Promise<T> {
-  const r = await fetch(path);
-  const body = await r.json().catch(() => ({ error: "provider_error", message: "Bad response" }));
-  if (!r.ok) throw new ApiFail(body.error ?? "provider_error", body.message ?? "Request failed");
-  return body as T;
+async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  let r: Response;
+  try {
+    r = await fetch(path, {
+      method,
+      credentials: "include",
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiFail("provider_error", "Network error");
+  }
+  const data = await r.json().catch(() => (r.ok ? {} : { error: r.status === 401 ? "unauthorized" : "provider_error", message: "Bad response" }));
+  if (!r.ok) throw new ApiFail(data.error ?? (r.status === 401 ? "unauthorized" : "provider_error"), data.message ?? "Request failed", r.status);
+  return data as T;
 }
+const get = <T,>(path: string) => call<T>("GET", path);
+const post = <T,>(path: string, body: unknown = {}) => call<T>("POST", path, body);
 
 export const normalizeUsername = (raw: string) => raw.trim().replace(/^@/, "").replace(/.*instagram\.com\//, "").replace(/[/?#].*$/, "").toLowerCase();
 export const isValidUsername = (u: string) => /^[a-z0-9._]{1,30}$/.test(u);
+
+export type RecentSearch = { username: string; at: string };
 
 export const api = {
   profile: (u: string) => get<Profile>(`/api/profile?u=${encodeURIComponent(u)}`),
   following: (u: string) => get<FollowList>(`/api/following?u=${encodeURIComponent(u)}`),
   followers: (u: string) => get<FollowList>(`/api/followers?u=${encodeURIComponent(u)}`),
+
+  signup: (email: string, password: string) => post<Me>("/api/auth/signup", { email, password }),
+  login: (email: string, password: string) => post<Me>("/api/auth/login", { email, password }),
+  logout: () => post<unknown>("/api/auth/logout"),
+  /** null = sem sessão (401). Outros erros sobem. */
+  me: async (): Promise<Me | null> => {
+    try { return await get<Me>("/api/me"); } catch (e) {
+      if (e instanceof ApiFail && (e.status === 401 || e.code === "unauthorized")) return null;
+      throw e;
+    }
+  },
+  checkout: (plan: PlanId, cycle: Cycle, username?: string) => post<{ url: string }>("/api/checkout", { plan, cycle, ...(username ? { username } : {}) }),
+  welcome: (session: string) => get<Me>(`/api/welcome?session=${encodeURIComponent(session)}`),
+  billingPortal: () => post<{ url: string }>("/api/billing-portal"),
+  searches: () => get<{ items: RecentSearch[] }>("/api/me/searches"),
 };
 
 /** Toda foto do Instagram passa pelo proxy (CDN do IG expira e bloqueia hotlink). */
