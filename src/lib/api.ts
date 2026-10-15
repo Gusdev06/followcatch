@@ -38,6 +38,23 @@ export type EmbeddedCheckout = {
   promo: { code: string; label: string } | null;
 };
 
+/** Checkout embutido do Stripe (Payment Element). Valores em centavos (USD). */
+export type StripeCheckout = {
+  provider: "stripe";
+  ref: string;
+  /** client_secret do PaymentIntent da 1ª fatura; null quando não há nada a cobrar */
+  clientSecret: string | null;
+  /** assinatura já ativa (cupom de 100%) */
+  paid: boolean;
+  amount: number;
+  interval: "week" | "3 months";
+  subtotal: number;
+  discount: number;
+  total: number;
+  renewal: number;
+  promo: { code: string; label: string } | null;
+};
+
 export type RecentSearch = { username: string; at: string };
 
 export const api = {
@@ -60,6 +77,8 @@ export const api = {
   checkout: (plan: PlanId, cycle: Cycle, username?: string) => post<{ url: string }>("/api/checkout", { plan, cycle, ...(username ? { username } : {}) }),
   checkoutEmbedded: (plan: PlanId, cycle: Cycle, username?: string, promo?: string) =>
     post<EmbeddedCheckout>("/api/checkout/embedded", { plan, cycle, ...(username ? { username } : {}), ...(promo ? { promo } : {}) }),
+  checkoutStripe: (plan: PlanId, cycle: Cycle, username?: string, promo?: string) =>
+    post<StripeCheckout>("/api/checkout/embedded", { plan, cycle, ...(username ? { username } : {}), ...(promo ? { promo } : {}) }),
   welcome: (session: string) => get<Me>(`/api/welcome?session=${encodeURIComponent(session)}`),
   billingPortal: () => post<{ url: string }>("/api/billing-portal"),
   searches: () => get<{ items: RecentSearch[] }>("/api/me/searches"),

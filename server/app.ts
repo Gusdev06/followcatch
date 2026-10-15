@@ -5,6 +5,10 @@ import type { Cycle, PlanId } from "../src/lib/types.js";
 import { authenticate, closeSession, createUser, currentUser, getMe, hasAccess, openSession, requestPasswordReset, requireUser, resetPassword } from "./auth.js";
 import { billingPortalUrl, confirmWelcome, createCheckout, createEmbeddedCheckout, handleEvent, PkError, verifySignature } from "./billing.js";
 import { searchesToday, spentToday } from "./cache.js";
+import {
+  confirmStripeWelcome, createStripeEmbedded, findStripeCheckout, handleStripeEvent, hasStripeCustomer, StripeFail,
+  stripePortalUrl, verifyStripeEvent,
+} from "./stripe.js";
 import { q } from "./db.js";
 import { classify } from "./gender.js";
 import { ApiErr, cachedProfile, getList, getProfile, normalizeUsername, teaser, type Who } from "./service.js";
@@ -185,6 +189,10 @@ app.get("/api/me/searches", async (c) => {
 
 // ---- pagamento -------------------------------------------------------------
 
+/** Provedor de pagamento: Stripe direto (padrão desde 15/10) ou PaymentKit (código mantido, desligado). */
+const PROVIDER = () => ((process.env.PAYMENT_PROVIDER || "stripe").toLowerCase() === "paymentkit" ? "paymentkit" : "stripe");
+const APP_URL = () => (process.env.APP_URL || "https://followcatch.vercel.app").replace(/\/+$/, "");
+
 const PLANS: PlanId[] = ["premium", "starter"];
 const CYCLES: Cycle[] = ["weekly", "quarterly"];
 
@@ -202,6 +210,10 @@ app.post("/api/checkout", async (c) => {
       } catch {
         username = null;
       }
+    }
+    if (PROVIDER() === "stripe") {
+      // Stripe: o pagamento é sempre no checkout embutido da nossa página
+      return c.json({ url: `${APP_URL()}/checkout?plan=${plan}&cycle=${cycle}${username ? `&username=${encodeURIComponent(username)}` : ""}` });
     }
     const r = await createCheckout(u, plan, cycle, username);
     return c.json({ url: r.url });
@@ -228,8 +240,17 @@ app.post("/api/checkout/embedded", async (c) => {
     }
     const rawPromo = typeof b.promo === "string" ? b.promo.trim() : "";
     if (rawPromo && !/^[A-Za-z0-9_-]{2,40}$/.test(rawPromo)) throw new ApiErr("invalid", 400, "That code isn't valid.");
+    if (PROVIDER() === "stripe") {
+      try {
+        return c.json(await createStripeEmbedded(u, plan, cycle, username, rawPromo || null));
+      } catch (e) {
+        if (e instanceof StripeFail && e.status === 400) throw new ApiErr("invalid", 400, e.message);
+        console.error("[checkout/embedded stripe]", e instanceof Error ? e.message : e);
+        throw new ApiErr("payment_error", 502, "Checkout is temporarily unavailable.");
+      }
+    }
     try {
-      return c.json(await createEmbeddedCheckout(u, plan, cycle, username, rawPromo || null));
+      return c.json({ provider: "paymentkit", ...(await createEmbeddedCheckout(u, plan, cycle, username, rawPromo || null)) });
     } catch (e) {
       if (e instanceof PkError && e.status === 400 && rawPromo) throw new ApiErr("invalid", 400, e.message || "That code isn't valid.");
       if (e instanceof PkError) {
@@ -245,7 +266,15 @@ app.post("/api/checkout/embedded", async (c) => {
 
 app.get("/api/welcome", async (c) => {
   try {
-    const session = (c.req.query("session") ?? "").trim();
+    // Stripe volta com ?ref=ck_… (+ payment_intent/redirect_status, que ignoramos: a fonte é a assinatura)
+    const session = (c.req.query("ref") ?? c.req.query("session") ?? "").trim();
+    if (session) {
+      const sck = await findStripeCheckout(session);
+      if (sck) {
+        const r = await confirmStripeWelcome(sck);
+        return c.json(await getMe({ id: r.userId, email: r.email }));
+      }
+    }
     if (!session) {
       const u = await requireUser(c);
       return c.json(await getMe(u));
@@ -265,6 +294,14 @@ app.get("/api/welcome", async (c) => {
 app.post("/api/billing-portal", async (c) => {
   try {
     const u = await requireUser(c);
+    const scus = await hasStripeCustomer(u.id);
+    if (scus) {
+      const surl = await stripePortalUrl(scus).catch((e) => {
+        console.error("[portal stripe]", e instanceof Error ? e.message : e);
+        return null;
+      });
+      if (surl) return c.json({ url: surl });
+    }
     const url = await billingPortalUrl(u).catch((e) => {
       console.error("[portal]", e);
       return null;
@@ -299,6 +336,21 @@ app.post("/api/webhooks/paymentkit", async (c) => {
   } catch (e) {
     console.error(`[webhook] ${type} ${id} falhou:`, e);
     return c.json({ error: "provider_error", message: "Processing failed." }, 500); // 5xx = PaymentKit tenta de novo
+  }
+});
+
+/** Webhook do Stripe: assinatura sobre o corpo CRU (c.req.text() antes de qualquer parse). */
+app.post("/api/webhooks/stripe", async (c) => {
+  const raw = await c.req.text();
+  const ev = verifyStripeEvent(raw, c.req.header("stripe-signature"));
+  if (!ev) return c.json({ error: "invalid", message: "Invalid signature." }, 400);
+  try {
+    const result = await handleStripeEvent(ev);
+    console.log(`[stripe webhook] ${ev.type} ${ev.id}: ${result}`);
+    return c.json({ received: true, result });
+  } catch (e) {
+    console.error(`[stripe webhook] ${ev.type} ${ev.id} falhou:`, e);
+    return c.json({ error: "provider_error", message: "Processing failed." }, 500); // 5xx = Stripe tenta de novo
   }
 });
 

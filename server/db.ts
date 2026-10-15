@@ -123,6 +123,16 @@ ALTER TABLE ${SCHEMA}.checkouts ADD COLUMN IF NOT EXISTS secure_token text;
 ALTER TABLE ${SCHEMA}.checkouts ADD COLUMN IF NOT EXISTS promo_code text;
 ALTER TABLE ${SCHEMA}.checkouts ADD COLUMN IF NOT EXISTS embedded boolean NOT NULL DEFAULT false;
 
+-- Stripe direto (15/10): cliente/assinatura do Stripe ao lado dos campos da PaymentKit
+ALTER TABLE ${SCHEMA}.users ADD COLUMN IF NOT EXISTS stripe_customer_id text;
+CREATE INDEX IF NOT EXISTS users_stripe_customer ON ${SCHEMA}.users (stripe_customer_id);
+ALTER TABLE ${SCHEMA}.subscriptions ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'paymentkit';
+ALTER TABLE ${SCHEMA}.subscriptions ADD COLUMN IF NOT EXISTS stripe_subscription_id text;
+ALTER TABLE ${SCHEMA}.subscriptions ADD COLUMN IF NOT EXISTS stripe_customer_id text;
+ALTER TABLE ${SCHEMA}.checkouts ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'paymentkit';
+ALTER TABLE ${SCHEMA}.checkouts ADD COLUMN IF NOT EXISTS stripe_subscription_id text;
+CREATE INDEX IF NOT EXISTS checkouts_stripe_sub ON ${SCHEMA}.checkouts (stripe_subscription_id);
+
 CREATE TABLE IF NOT EXISTS ${SCHEMA}.webhook_events (
   id text PRIMARY KEY,
   type text NOT NULL,

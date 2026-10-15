@@ -8,19 +8,22 @@ import { api } from "../lib/api";
 import { isActive, readPending, useMe } from "../lib/session";
 import type { Me } from "../lib/types";
 
-type State = { s: "loading" } | { s: "ok"; me: Me } | { s: "error" };
+type State = { s: "loading" } | { s: "ok"; me: Me } | { s: "error" } | { s: "failed" };
 
 const planName = (me: Me) => site.plans.find((p) => p.id === me.plan)?.name ?? "FollowCatch";
 
-// Volta do checkout da PaymentKit: confere a sessão na hora (não espera o webhook).
+// Volta do checkout (Stripe: ?ref=ck_…&payment_intent=…&redirect_status=…; PaymentKit: ?session=…):
+// confere no provedor na hora (não espera o webhook).
 export default function Welcome() {
   const [params] = useSearchParams();
-  const session = params.get("session") ?? params.get("session_id") ?? "";
+  const session = params.get("ref") ?? params.get("session") ?? params.get("session_id") ?? "";
+  const failed = params.get("redirect_status") === "failed";
   const { setMe } = useMe();
   const [state, setState] = useState<State>({ s: "loading" });
   const pendingU = readPending().username ?? "";
 
   const check = useCallback(async () => {
+    if (failed) return setState({ s: "failed" });
     setState({ s: "loading" });
     try {
       let me: Me | null;
@@ -33,10 +36,12 @@ export default function Welcome() {
     } catch {
       setState({ s: "error" });
     }
-  }, [session, setMe]);
+  }, [session, setMe, failed]);
 
   useEffect(() => { document.title = "Welcome to FollowCatch"; void check(); }, [check]);
 
+  const pend = readPending();
+  const retry = `/checkout?plan=${pend.plan ?? "premium"}&cycle=${pend.cycle ?? "weekly"}${pendingU ? `&username=${encodeURIComponent(pendingU)}` : ""}`;
   const dash = `/app${pendingU ? `?u=${encodeURIComponent(pendingU)}` : ""}${isMock() ? `${pendingU ? "&" : "?"}mock=1` : ""}`;
 
   return (
@@ -63,6 +68,14 @@ export default function Welcome() {
                 {pendingU ? <>Full lists for <b className="text-ink">@{pendingU}</b> are ready.</> : "Full following and follower lists are unlocked."}
               </p>
               <Button href={dash} className="mt-7 w-full !rounded-xl !py-3.5 text-base">Open dashboard</Button>
+            </>
+          )}
+          {state.s === "failed" && (
+            <>
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white text-3xl shadow-sm" aria-hidden>!</div>
+              <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">Payment didn't go through</h1>
+              <p className="mt-2 text-[15px] text-gray-600">You weren't charged. Try again or use another payment method.</p>
+              <Button href={retry} className="mt-7 w-full !rounded-xl !py-3.5 text-base">Try again</Button>
             </>
           )}
           {state.s === "error" && (
