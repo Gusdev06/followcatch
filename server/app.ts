@@ -3,7 +3,7 @@
 import { Hono, type Context } from "hono";
 import type { Cycle, PlanId } from "../src/lib/types.js";
 import { authenticate, closeSession, createUser, currentUser, getMe, hasAccess, openSession, requestPasswordReset, requireUser, resetPassword } from "./auth.js";
-import { billingPortalUrl, confirmWelcome, createCheckout, handleEvent, verifySignature } from "./billing.js";
+import { billingPortalUrl, confirmWelcome, createCheckout, createEmbeddedCheckout, handleEvent, PkError, verifySignature } from "./billing.js";
 import { searchesToday, spentToday } from "./cache.js";
 import { q } from "./db.js";
 import { classify } from "./gender.js";
@@ -205,6 +205,39 @@ app.post("/api/checkout", async (c) => {
     }
     const r = await createCheckout(u, plan, cycle, username);
     return c.json({ url: r.url });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+/** Checkout embutido: sessão + secure_token pro PaymentKit.js montar os campos de cartão na nossa página. */
+app.post("/api/checkout/embedded", async (c) => {
+  try {
+    const u = await requireUser(c);
+    const b = await body(c);
+    const plan = b.plan as PlanId;
+    const cycle = b.cycle as Cycle;
+    if (!PLANS.includes(plan) || !CYCLES.includes(cycle)) throw new ApiErr("invalid", 400, "Invalid plan.");
+    let username: string | null = null;
+    if (typeof b.username === "string" && b.username) {
+      try {
+        username = normalizeUsername(b.username);
+      } catch {
+        username = null;
+      }
+    }
+    const rawPromo = typeof b.promo === "string" ? b.promo.trim() : "";
+    if (rawPromo && !/^[A-Za-z0-9_-]{2,40}$/.test(rawPromo)) throw new ApiErr("invalid", 400, "That code isn't valid.");
+    try {
+      return c.json(await createEmbeddedCheckout(u, plan, cycle, username, rawPromo || null));
+    } catch (e) {
+      if (e instanceof PkError && e.status === 400 && rawPromo) throw new ApiErr("invalid", 400, e.message || "That code isn't valid.");
+      if (e instanceof PkError) {
+        console.error("[checkout/embedded]", e.message);
+        throw new ApiErr("payment_error", 502, "Checkout is temporarily unavailable.");
+      }
+      throw e;
+    }
   } catch (e) {
     return fail(c, e);
   }

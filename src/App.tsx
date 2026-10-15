@@ -3,6 +3,7 @@ import Landing from "./pages/Landing";
 import Search from "./pages/Search";
 import Plans from "./pages/Plans";
 import Signup from "./pages/Signup";
+import Checkout from "./pages/Checkout";
 import Login from "./pages/Login";
 import StoryViewer from "./pages/StoryViewer";
 import Legal from "./pages/legal/Legal";
@@ -18,6 +19,7 @@ export default function App() {
       <Route path="/search" element={<Search />} />
       <Route path="/plans" element={<Plans />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/checkout" element={<Checkout />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />

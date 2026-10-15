@@ -118,6 +118,10 @@ CREATE TABLE IF NOT EXISTS ${SCHEMA}.checkouts (
   created_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz
 );
+-- checkout embutido (PaymentKit.js): token da sessão pra reaproveitar e cupom aplicado
+ALTER TABLE ${SCHEMA}.checkouts ADD COLUMN IF NOT EXISTS secure_token text;
+ALTER TABLE ${SCHEMA}.checkouts ADD COLUMN IF NOT EXISTS promo_code text;
+ALTER TABLE ${SCHEMA}.checkouts ADD COLUMN IF NOT EXISTS embedded boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS ${SCHEMA}.webhook_events (
   id text PRIMARY KEY,

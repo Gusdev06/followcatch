@@ -21,7 +21,7 @@ export function afterLoginPath(me: Me, params: URLSearchParams): string {
   if (u) q.set("username", u);
   const qs = q.toString();
   // Veio do "Log in instead" do signup: já tem plano escolhido, segue pro checkout.
-  return plan ? `/signup?${qs}` : `/plans${qs ? `?${qs}` : ""}`;
+  return plan ? `/checkout?${qs}` : `/plans${qs ? `?${qs}` : ""}`;
 }
 
 export default function Login() {

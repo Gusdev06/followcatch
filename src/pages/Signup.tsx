@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { paymentLinks } from "../config/paymentkit";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthShell, Field, GoogleButton, inputCls, OrDivider, SubmitButton } from "../components/funnel/AuthShell";
 import { findPlan, parseCycle, priceOf } from "../components/funnel/plan";
-import { money, Spinner } from "../components/funnel/shared";
+import { money } from "../components/funnel/shared";
 import { api, ApiFail, isValidUsername, normalizeUsername } from "../lib/api";
 import { isActive, useMe, writePending } from "../lib/session";
 import type { PlanId } from "../lib/types";
@@ -18,6 +17,7 @@ export default function Signup() {
   const rawU = normalizeUsername(params.get("username") ?? "");
   const username = isValidUsername(rawU) ? rawU : "";
   const pr = priceOf(plan, cycle);
+  const nav = useNavigate();
   const { me, setMe } = useMe();
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
@@ -30,16 +30,10 @@ export default function Signup() {
 
   const keep = `plan=${planId}&cycle=${cycle}${username ? `&username=${encodeURIComponent(username)}` : ""}`;
 
-  /** Conta já existe/logada: cria a sessão de checkout; se a API falhar, cai no payment link. */
-  const goCheckout = async (mail: string) => {
+  /** Conta criada/logada: o pagamento acontece no checkout embutido (/checkout). */
+  const goCheckout = (mail: string) => {
     writePending({ plan: planId, cycle, username, email: mail });
-    try {
-      const { url } = await api.checkout(planId, cycle, username || undefined);
-      if (!url) throw new Error("no url");
-      window.location.href = url;
-    } catch {
-      window.location.href = paymentLinks[planId][cycle];
-    }
+    nav(`/checkout?${keep}`);
   };
 
   const submit = async () => {
@@ -50,7 +44,7 @@ export default function Signup() {
     try {
       const m = await api.signup(mail, pw);
       setMe(m);
-      await goCheckout(mail);
+      goCheckout(mail);
     } catch (e) {
       setBusy(false);
       setErr(e instanceof ApiFail && e.code === "email_taken" ? "taken" : "generic");
@@ -70,25 +64,8 @@ export default function Signup() {
     </div>
   );
 
-  // Já logado (ex.: veio do /login sem assinatura): só falta pagar.
-  if (me && !isActive(me)) {
-    return (
-      <AuthShell>
-        <div className="text-center">
-          <h1 className="text-[28px] font-extrabold tracking-tight text-ink">Almost there</h1>
-          <p className="mx-auto mt-2 max-w-xs text-[15px] text-gray-600">Signed in as <b className="text-ink">{me.email}</b>. Finish checkout to unlock the full lists.</p>
-        </div>
-        <div className="mt-6">{summary}</div>
-        <button
-          onClick={() => { setBusy(true); void goCheckout(me.email); }}
-          disabled={busy}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-cta px-4 py-3.5 text-base font-bold text-white shadow-[0_10px_24px_-10px_rgba(255,45,85,0.7)] transition hover:brightness-105 disabled:opacity-70"
-        >
-          {busy ? <><Spinner className="h-5 w-5 !text-white" /> Opening secure checkout…</> : "Continue to checkout"}
-        </button>
-      </AuthShell>
-    );
-  }
+  // Já logado sem assinatura: só falta pagar, direto pro checkout embutido.
+  if (me && !isActive(me) && !busy) return <Navigate to={`/checkout?${keep}`} replace />;
 
   return (
     <AuthShell>

@@ -26,6 +26,18 @@ const post = <T,>(path: string, body: unknown = {}) => call<T>("POST", path, bod
 export const normalizeUsername = (raw: string) => raw.trim().replace(/^@/, "").replace(/.*instagram\.com\//, "").replace(/[/?#].*$/, "").toLowerCase();
 export const isValidUsername = (u: string) => /^[a-z0-9._]{1,30}$/.test(u);
 
+/** Sessão do checkout embutido (PaymentKit.js). Valores em centavos (USD). */
+export type EmbeddedCheckout = {
+  ref: string;
+  secureToken: string;
+  hostedUrl: string;
+  subtotal: number;
+  discount: number;
+  total: number;
+  renewal: number;
+  promo: { code: string; label: string } | null;
+};
+
 export type RecentSearch = { username: string; at: string };
 
 export const api = {
@@ -46,6 +58,8 @@ export const api = {
     }
   },
   checkout: (plan: PlanId, cycle: Cycle, username?: string) => post<{ url: string }>("/api/checkout", { plan, cycle, ...(username ? { username } : {}) }),
+  checkoutEmbedded: (plan: PlanId, cycle: Cycle, username?: string, promo?: string) =>
+    post<EmbeddedCheckout>("/api/checkout/embedded", { plan, cycle, ...(username ? { username } : {}), ...(promo ? { promo } : {}) }),
   welcome: (session: string) => get<Me>(`/api/welcome?session=${encodeURIComponent(session)}`),
   billingPortal: () => post<{ url: string }>("/api/billing-portal"),
   searches: () => get<{ items: RecentSearch[] }>("/api/me/searches"),

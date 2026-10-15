@@ -95,11 +95,127 @@ export async function createCheckout(user: User, plan: PlanId, cycle: Cycle, use
       "INSERT INTO followcatch.checkouts (ref, user_id, pk_session_id, plan, cycle, username) VALUES ($1, $2, $3, $4, $5, $6)",
       [ref, user.id, s.id, plan, cycle, username],
     );
-    return { url: `https://app.paymentkit.com/customer/?checkout_token=${encodeURIComponent(s.secure_token)}`, fallback: false };
+    return { url: hostedUrlOf(s.secure_token), fallback: false };
   } catch (e) {
     console.warn("[checkout] session falhou, usando payment link:", e instanceof Error ? e.message : e);
     return { url: paymentLinks[plan][cycle], fallback: true };
   }
+}
+
+// ---- checkout embutido (PaymentKit.js) ---------------------------------------
+// Fluxo oficial (docs PaymentKit.js → getting-started): o backend cria a checkout
+// session com o price recorrente e devolve o `secure_token`; o front monta os campos
+// do SDK com esse token e chama `submit()`. A session com price recorrente cria a
+// assinatura ao concluir; a ativação segue pelo webhook + /api/welcome (ref nossa).
+
+/** Valor de cada price em centavos (catálogo de 15/10, ver paymentkit-2026-10-15.md). */
+const AMOUNT_ATOM: Record<PlanId, Record<Cycle, number>> = {
+  premium: { weekly: 1400, quarterly: 12740 },
+  starter: { weekly: 1200, quarterly: 10920 },
+};
+
+type PkCoupon = {
+  id: string;
+  name: string | null;
+  percent_off: number | null;
+  amount_atom_off: number | null;
+  duration: string; // once | forever | repeating
+  duration_in_months: number | null;
+};
+
+export type EmbeddedCheckout = {
+  ref: string;
+  secureToken: string;
+  hostedUrl: string;
+  /** centavos, USD */
+  subtotal: number;
+  discount: number;
+  total: number;
+  /** valor das renovações (cupom "once" só vale na 1ª cobrança) */
+  renewal: number;
+  promo: { code: string; label: string } | null;
+};
+
+const hostedUrlOf = (token: string) => `https://app.paymentkit.com/customer/?checkout_token=${encodeURIComponent(token)}`;
+
+/** Valida o código na PaymentKit e devolve o cupom. Código inválido → ApiErr-like PkError 400. */
+async function resolvePromo(code: string, customerId: string, amount: number): Promise<PkCoupon> {
+  const v = await pk<{ valid: boolean; error?: string | null; promotion_code?: { coupon_id: string } | null }>(
+    "POST",
+    "/promotion-codes/validate",
+    { code, customer_id: customerId, order_amount: amount / 100, order_currency: "usd" },
+  ).catch((e) => {
+    // 404/422 do validate = código não existe
+    if (e instanceof PkError && e.status >= 400 && e.status < 500) return { valid: false, error: null, promotion_code: null };
+    throw e;
+  });
+  if (!v.valid || !v.promotion_code?.coupon_id) throw new PkError(400, v.error || "That code isn't valid.");
+  return pk<PkCoupon>("GET", `/coupons/${encodeURIComponent(v.promotion_code.coupon_id)}`);
+}
+
+function discountOf(c: PkCoupon | null, amount: number): number {
+  if (!c) return 0;
+  if (c.percent_off) return Math.min(amount, Math.round((amount * c.percent_off) / 100));
+  if (c.amount_atom_off) return Math.min(amount, c.amount_atom_off);
+  return 0;
+}
+
+function promoLabel(c: PkCoupon): string {
+  const off = c.percent_off ? `${+c.percent_off.toFixed(2)}% off` : c.amount_atom_off ? `$${(c.amount_atom_off / 100).toFixed(2)} off` : "Discount";
+  if (c.duration === "once") return `${off} your first payment`;
+  if (c.duration === "repeating" && c.duration_in_months) return `${off} for ${c.duration_in_months} month${c.duration_in_months > 1 ? "s" : ""}`;
+  return off;
+}
+
+/**
+ * Sessão pro checkout embutido. Sem cupom, reaproveita uma sessão aberta recente do
+ * mesmo usuário/plano/ciclo/@ (evita criar uma sessão a cada reload).
+ */
+export async function createEmbeddedCheckout(
+  user: User, plan: PlanId, cycle: Cycle, username: string | null, promoCode: string | null,
+): Promise<EmbeddedCheckout> {
+  const subtotal = AMOUNT_ATOM[plan][cycle];
+  const customerId = await ensureCustomer(user);
+
+  let coupon: PkCoupon | null = null;
+  if (promoCode) coupon = await resolvePromo(promoCode, customerId, subtotal);
+  const discount = discountOf(coupon, subtotal);
+  const promo = coupon && promoCode ? { code: promoCode, label: promoLabel(coupon) } : null;
+  const renewal = coupon && coupon.duration === "forever" ? subtotal - discount : subtotal;
+  const priced = { subtotal, discount, total: subtotal - discount, renewal, promo };
+
+  if (!promoCode) {
+    const prev = await one<{ ref: string; pk_session_id: string; secure_token: string }>(
+      `SELECT ref, pk_session_id, secure_token FROM followcatch.checkouts
+        WHERE user_id = $1 AND plan = $2 AND cycle = $3 AND username IS NOT DISTINCT FROM $4
+          AND embedded AND promo_code IS NULL AND completed_at IS NULL AND secure_token IS NOT NULL
+          AND created_at > now() - interval '20 hours'
+        ORDER BY created_at DESC LIMIT 1`,
+      [user.id, plan, cycle, username],
+    );
+    if (prev) {
+      const s = await pk<PkSession>("GET", `/checkout-sessions/${encodeURIComponent(prev.pk_session_id)}`).catch(() => null);
+      if (s && s.state === "open" && !s.completed) {
+        return { ref: prev.ref, secureToken: prev.secure_token, hostedUrl: hostedUrlOf(prev.secure_token), ...priced };
+      }
+    }
+  }
+
+  const ref = `ck_${randomBytes(18).toString("base64url")}`;
+  const s = await pk<PkSession>("POST", "/checkout-sessions/", {
+    customer_id: customerId,
+    line_items: [{ price_id: PRICES[plan][cycle], quantity: 1 }],
+    ...(promoCode ? { promotion_code: promoCode } : {}),
+    success_url: `${APP_URL()}/welcome?session=${ref}`,
+    return_url: `${APP_URL()}/checkout?plan=${plan}&cycle=${cycle}${username ? `&username=${encodeURIComponent(username)}` : ""}`,
+    expires_in_hours: 24,
+  });
+  await q(
+    `INSERT INTO followcatch.checkouts (ref, user_id, pk_session_id, plan, cycle, username, secure_token, promo_code, embedded)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)`,
+    [ref, user.id, s.id, plan, cycle, username, s.secure_token, promoCode],
+  );
+  return { ref, secureToken: s.secure_token, hostedUrl: hostedUrlOf(s.secure_token), ...priced };
 }
 
 // ---- assinatura: PaymentKit → nossa tabela --------------------------------
