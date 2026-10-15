@@ -1,8 +1,8 @@
 // Classificação de gênero por nome/username: 1 chamada à Anthropic por lista.
 // Nunca segura a resposta mais que 4 s: o que não chegou vira "other" AGORA, mas a
 // chamada segue em segundo plano e grava no cache — a próxima leitura já vem certa.
-import type { Gender } from "../src/lib/types";
-import { genderGetMany, genderSetMany } from "./cache";
+import type { Gender } from "../src/lib/types.js";
+import { genderGetMany, genderSetMany } from "./cache.js";
 
 const MODEL = "claude-haiku-5-5";
 const WAIT_MS = 4_000;
@@ -66,11 +66,11 @@ function classifyInBackground(people: Who[]): Promise<void> {
 /** Gênero de cada pessoa. Cache primeiro; o resto em 1 chamada com espera máxima de 4 s. */
 export async function classify(people: Who[]): Promise<Map<string, Gender>> {
   const names = people.map((p) => p.username);
-  let known = genderGetMany(names);
+  let known = await genderGetMany(names);
   const missing = people.filter((p) => !known.has(p.username));
   if (missing.length > 0) {
     await Promise.race([classifyInBackground(missing), new Promise((r) => setTimeout(r, WAIT_MS))]);
-    known = genderGetMany(names);
+    known = await genderGetMany(names);
   }
   const out = new Map<string, Gender>();
   for (const u of names) out.set(u, known.get(u) ?? "other");

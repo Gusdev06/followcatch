@@ -36,6 +36,8 @@ export const api = {
   signup: (email: string, password: string) => post<Me>("/api/auth/signup", { email, password }),
   login: (email: string, password: string) => post<Me>("/api/auth/login", { email, password }),
   logout: () => post<unknown>("/api/auth/logout"),
+  forgot: (email: string) => post<{ ok: true; message: string }>("/api/auth/forgot", { email }),
+  resetPassword: (token: string, password: string) => post<Me>("/api/auth/reset", { token, password }),
   /** null = sem sessão (401). Outros erros sobem. */
   me: async (): Promise<Me | null> => {
     try { return await get<Me>("/api/me"); } catch (e) {

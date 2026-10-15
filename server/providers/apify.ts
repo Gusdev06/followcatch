@@ -5,7 +5,7 @@
 //  - perfil (apify~instagram-profile-scraper): camelCase, followersCount, relatedProfiles (snake_case dentro)
 //  - following/followers (datadoping~*): snake_case, ordem do dataset = ordem de recência
 
-import type { MiniAccount } from "../../src/lib/types";
+import type { MiniAccount } from "../../src/lib/types.js";
 
 export type Kind = "profile" | "following" | "followers";
 

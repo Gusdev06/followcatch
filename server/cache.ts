@@ -1,34 +1,7 @@
-// Cache e contadores do FollowCatch. SQLite hoje; a interface é o que o resto do
-// server enxerga, pra trocar por Postgres sem mexer em rota nenhuma.
-import Database from "better-sqlite3";
-import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Gender } from "../src/lib/types";
-
-export const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "data");
-mkdirSync(join(DATA_DIR, "img"), { recursive: true });
-
-const db = new Database(join(DATA_DIR, "cache.db"));
-db.pragma("journal_mode = WAL");
-db.exec(`
-  CREATE TABLE IF NOT EXISTS kv (
-    key TEXT PRIMARY KEY, value TEXT NOT NULL, expires_at INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS gender (
-    username TEXT PRIMARY KEY, gender TEXT NOT NULL, at INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, username TEXT NOT NULL,
-    itens INTEGER NOT NULL, custo_est REAL NOT NULL, ms INTEGER NOT NULL, ok INTEGER NOT NULL DEFAULT 1,
-    at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS runs_at ON runs(at);
-  CREATE TABLE IF NOT EXISTS searches (
-    ip TEXT NOT NULL, day TEXT NOT NULL, username TEXT NOT NULL, at INTEGER NOT NULL,
-    PRIMARY KEY (ip, day, username)
-  );
-`);
+// Cache e contadores do FollowCatch, no Postgres (schema followcatch). A interface é o
+// que o resto do server enxerga.
+import type { Gender } from "../src/lib/types.js";
+import { one, q } from "./db.js";
 
 export const TTL = {
   profile: 24 * 3600_000,
@@ -38,79 +11,85 @@ export const TTL = {
 
 // ---- cache genérico (JSON) -------------------------------------------------
 
-const stGet = db.prepare<[string, number], { value: string }>(
-  "SELECT value FROM kv WHERE key = ? AND expires_at > ?",
-);
-const stSet = db.prepare("INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)");
-
-export function cacheGet<T>(key: string): T | null {
-  const row = stGet.get(key, Date.now());
-  return row ? (JSON.parse(row.value) as T) : null;
+export async function cacheGet<T>(key: string): Promise<T | null> {
+  const row = await one<{ value: T }>("SELECT value FROM followcatch.kv WHERE key = $1 AND expires_at > now()", [key]);
+  return row ? row.value : null;
 }
 
-export function cacheSet(key: string, value: unknown, ttlMs: number): void {
-  stSet.run(key, JSON.stringify(value), Date.now() + ttlMs);
+export async function cacheSet(key: string, value: unknown, ttlMs: number): Promise<void> {
+  await q(
+    `INSERT INTO followcatch.kv (key, value, expires_at) VALUES ($1, $2::jsonb, now() + ($3 || ' milliseconds')::interval)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at`,
+    [key, JSON.stringify(value), String(ttlMs)],
+  );
 }
 
 // ---- gênero por username ---------------------------------------------------
 
-export function genderGetMany(usernames: string[]): Map<string, Gender> {
+export async function genderGetMany(usernames: string[]): Promise<Map<string, Gender>> {
   const out = new Map<string, Gender>();
   if (usernames.length === 0) return out;
-  const rows = db
-    .prepare(`SELECT username, gender FROM gender WHERE username IN (${usernames.map(() => "?").join(",")})`)
-    .all(...usernames) as { username: string; gender: Gender }[];
+  const rows = await q<{ username: string; gender: Gender }>(
+    "SELECT username, gender FROM followcatch.gender WHERE username = ANY($1::text[])",
+    [usernames],
+  );
   for (const r of rows) out.set(r.username, r.gender);
   return out;
 }
 
-const stGender = db.prepare("INSERT OR REPLACE INTO gender (username, gender, at) VALUES (?, ?, ?)");
-export const genderSetMany = db.transaction((pairs: [string, Gender][]) => {
-  const now = Date.now();
-  for (const [u, g] of pairs) stGender.run(u, g, now);
-});
+export async function genderSetMany(pairs: [string, Gender][]): Promise<void> {
+  if (pairs.length === 0) return;
+  await q(
+    `INSERT INTO followcatch.gender (username, gender, at)
+     SELECT u, g, now() FROM unnest($1::text[], $2::text[]) AS t(u, g)
+     ON CONFLICT (username) DO UPDATE SET gender = EXCLUDED.gender, at = EXCLUDED.at`,
+    [pairs.map((p) => p[0]), pairs.map((p) => p[1])],
+  );
+}
 
 // ---- custo -----------------------------------------------------------------
 
-const stRun = db.prepare(
-  "INSERT INTO runs (actor, username, itens, custo_est, ms, ok, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-);
-export function logRun(r: { actor: string; username: string; itens: number; custo: number; ms: number; ok: boolean }) {
-  stRun.run(r.actor, r.username, r.itens, r.custo, r.ms, r.ok ? 1 : 0, Date.now());
+export async function logRun(r: { actor: string; username: string; itens: number; custo: number; ms: number; ok: boolean }) {
+  await q("INSERT INTO followcatch.runs (actor, username, itens, custo_est, ms, ok) VALUES ($1, $2, $3, $4, $5, $6)", [
+    r.actor, r.username, r.itens, r.custo, r.ms, r.ok,
+  ]);
 }
 
-/** Início do dia em UTC: o teto diário zera à meia-noite UTC. */
-function dayStart(): number {
-  const d = new Date();
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-}
-const today = () => new Date().toISOString().slice(0, 10);
-
-export function spentToday(): { usd: number; runs: number } {
-  const r = db
-    .prepare("SELECT COALESCE(SUM(custo_est), 0) AS usd, COUNT(*) AS runs FROM runs WHERE at >= ?")
-    .get(dayStart()) as { usd: number; runs: number };
-  return r;
+/** O teto diário zera à meia-noite UTC. */
+export async function spentToday(): Promise<{ usd: number; runs: number }> {
+  const r = await one<{ usd: string; runs: string }>(
+    `SELECT COALESCE(SUM(custo_est), 0) AS usd, COUNT(*) AS runs FROM followcatch.runs
+      WHERE at >= (now() AT TIME ZONE 'UTC')::date`,
+  );
+  return { usd: Number(r?.usd ?? 0), runs: Number(r?.runs ?? 0) };
 }
 
-// ---- rate limit por IP -----------------------------------------------------
+// ---- limite de buscas novas por dia ----------------------------------------
 
 /**
- * Uma "busca" = um @ novo pra este IP hoje. profile + following + followers do mesmo @
- * caem na mesma linha (PK ip,day,username), então contam como 1.
- * Devolve false se o IP já gastou as buscas do dia com outros @.
+ * Uma "busca" = um @ novo pra este `who` hoje (who = "ip:<ip>" ou "user:<id>").
+ * profile + following + followers do mesmo @ caem na mesma linha, então contam como 1.
+ * Devolve false se já gastou as buscas do dia com outros @.
  */
-export function claimSearch(ip: string, username: string, limit: number): boolean {
-  const day = today();
-  const ja = db.prepare("SELECT 1 FROM searches WHERE ip = ? AND day = ? AND username = ?").get(ip, day, username);
+export async function claimSearch(who: string, username: string, limit: number): Promise<boolean> {
+  const ja = await one(
+    "SELECT 1 FROM followcatch.searches WHERE who = $1 AND day = (now() AT TIME ZONE 'UTC')::date AND username = $2",
+    [who, username],
+  );
   if (ja) return true;
-  const { n } = db.prepare("SELECT COUNT(*) AS n FROM searches WHERE ip = ? AND day = ?").get(ip, day) as { n: number };
-  if (n >= limit) return false;
-  db.prepare("INSERT OR IGNORE INTO searches (ip, day, username, at) VALUES (?, ?, ?, ?)").run(ip, day, username, Date.now());
+  if ((await searchesToday(who)) >= limit) return false;
+  await q(
+    `INSERT INTO followcatch.searches (who, day, username) VALUES ($1, (now() AT TIME ZONE 'UTC')::date, $2)
+     ON CONFLICT DO NOTHING`,
+    [who, username],
+  );
   return true;
 }
 
-export function searchesToday(ip: string): number {
-  const { n } = db.prepare("SELECT COUNT(*) AS n FROM searches WHERE ip = ? AND day = ?").get(ip, today()) as { n: number };
-  return n;
+export async function searchesToday(who: string): Promise<number> {
+  const r = await one<{ n: string }>(
+    "SELECT COUNT(*) AS n FROM followcatch.searches WHERE who = $1 AND day = (now() AT TIME ZONE 'UTC')::date",
+    [who],
+  );
+  return Number(r?.n ?? 0);
 }

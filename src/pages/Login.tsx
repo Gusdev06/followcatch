@@ -5,7 +5,7 @@ import { api, ApiFail, isValidUsername, normalizeUsername } from "../lib/api";
 import { isActive, readPending, useMe } from "../lib/session";
 import type { Me } from "../lib/types";
 
-type Notice = null | "google" | "forgot";
+type Notice = null | "google";
 
 /** Pra onde vai depois de logar: assinante → /app; sem assinatura → checkout do plano escolhido ou /plans. */
 export function afterLoginPath(me: Me, params: URLSearchParams): string {
@@ -62,10 +62,8 @@ export default function Login() {
     <AuthShell>
       {notice ? (
         <ComingSoon
-          title={notice === "forgot" ? "Password reset is coming soon" : "Google sign-in is coming soon"}
-          body={notice === "forgot"
-            ? <>Email <a className="font-semibold text-brand-magenta underline" href="mailto:support@followcatch.com">support@followcatch.com</a> from your account address and we'll reset it for you.</>
-            : "For now, sign in with the email and password you used when you joined."}
+          title="Google sign-in is coming soon"
+          body="For now, sign in with the email and password you used when you joined."
           onBack={() => setNotice(null)}
         />
       ) : (
@@ -90,7 +88,7 @@ export default function Login() {
             </Field>
             {err && <p className="-mt-1 text-sm text-red-500" role="alert">{err}</p>}
             <div className="text-right">
-              <button type="button" onClick={() => setNotice("forgot")} className="text-sm font-semibold text-brand-magenta hover:underline">Forgot password?</button>
+              <Link to="/forgot-password" className="text-sm font-semibold text-brand-magenta hover:underline">Forgot password?</Link>
             </div>
             <SubmitButton disabled={busy}>{busy ? "Signing in…" : "Sign in"}</SubmitButton>
           </form>
