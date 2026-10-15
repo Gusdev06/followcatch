@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AuthShell, ComingSoon, Field, GoogleButton, inputCls, OrDivider, SubmitButton } from "../components/funnel/AuthShell";
+import { paymentLinks } from "../config/paymentkit";
+import { AuthShell, Field, GoogleButton, inputCls, OrDivider, SubmitButton } from "../components/funnel/AuthShell";
 import { findPlan, parseCycle, priceOf } from "../components/funnel/plan";
 import { money } from "../components/funnel/shared";
 import { isValidUsername, normalizeUsername } from "../lib/api";
@@ -16,14 +17,14 @@ export default function Signup() {
   const pr = priceOf(plan, cycle);
   const [email, setEmail] = useState("");
   const [err, setErr] = useState("");
-  const [sent, setSent] = useState(false);
 
   useEffect(() => { document.title = "Join FollowCatch"; }, []);
 
   const finish = () => {
-    // Sem auth/pagamento na F1: guarda a escolha só neste navegador, não envia nada.
-    try { localStorage.setItem("fc_pending_plan", JSON.stringify({ plan: plan.id, cycle, username })); } catch { /* sem storage */ }
-    setSent(true);
+    // Ainda sem conta no servidor: guarda a escolha neste navegador e manda pro checkout hospedado da PaymentKit.
+    try { localStorage.setItem("fc_pending_plan", JSON.stringify({ plan: plan.id, cycle, username, email: email.trim() })); } catch { /* sem storage */ }
+    const id = plan.id === "starter" ? "starter" : "premium";
+    window.location.href = paymentLinks[id][cycle === "quarterly" ? "quarterly" : "weekly"];
   };
 
   const summary = (
@@ -41,13 +42,7 @@ export default function Signup() {
 
   return (
     <AuthShell>
-      {sent ? (
-        <ComingSoon
-          title="Payments are coming soon"
-          body={<>Checkout isn't open yet, so you haven't been charged. We kept your choice of <b>{plan.name} ({cycle})</b> on this device so you can pick up right where you left off.</>}
-          onBack={() => setSent(false)}
-        />
-      ) : (
+      {(
         <>
           <div className="text-center">
             <h1 className="text-[28px] font-extrabold tracking-tight text-ink">Join FollowCatch</h1>
