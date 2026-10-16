@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AuthShell, ComingSoon, Field, GoogleButton, inputCls, OrDivider, SubmitButton } from "../components/funnel/AuthShell";
+import { AuthShell, Field, inputCls, SubmitButton } from "../components/funnel/AuthShell";
 import { api, ApiFail, isValidUsername, normalizeUsername } from "../lib/api";
 import { isActive, readPending, useMe } from "../lib/session";
 import type { Me } from "../lib/types";
-
-type Notice = null | "google";
 
 /** Pra onde vai depois de logar: assinante → /app; sem assinatura → checkout do plano escolhido ou /plans. */
 export function afterLoginPath(me: Me, params: URLSearchParams): string {
@@ -31,7 +29,6 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
-  const [notice, setNotice] = useState<Notice>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -60,43 +57,31 @@ export default function Login() {
 
   return (
     <AuthShell>
-      {notice ? (
-        <ComingSoon
-          title="Google sign-in is coming soon"
-          body="For now, sign in with the email and password you used when you joined."
-          onBack={() => setNotice(null)}
-        />
-      ) : (
-        <>
-          <div className="text-center">
-            <h1 className="text-[28px] font-extrabold tracking-tight text-ink">Welcome back</h1>
-            <p className="mx-auto mt-2 max-w-xs text-[15px] text-gray-600">Sign in to keep following the accounts you track.</p>
+      <div className="text-center">
+        <h1 className="text-[28px] font-extrabold tracking-tight text-ink">Welcome back</h1>
+        <p className="mx-auto mt-2 max-w-xs text-[15px] text-gray-600">Sign in to keep following the accounts you track.</p>
+      </div>
+      <form noValidate onSubmit={(e) => { e.preventDefault(); if (!busy) void submit(); }} className="mt-7 space-y-4">
+        <Field label="Email address">
+          <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setErr(""); }} placeholder="you@email.com" autoComplete="email" className={inputCls} />
+        </Field>
+        <Field label="Password">
+          <div className="relative">
+            <input type={show ? "text" : "password"} value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} placeholder="Your password" autoComplete="current-password" className={`${inputCls} pr-16`} />
+            <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-brand-magenta/80 hover:text-brand-magenta">
+              {show ? "Hide" : "Show"}
+            </button>
           </div>
-          <div className="mt-7"><GoogleButton label="Sign in with Google" onClick={() => setNotice("google")} /></div>
-          <OrDivider />
-          <form noValidate onSubmit={(e) => { e.preventDefault(); if (!busy) void submit(); }} className="space-y-4">
-            <Field label="Email address">
-              <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setErr(""); }} placeholder="you@email.com" autoComplete="email" className={inputCls} />
-            </Field>
-            <Field label="Password">
-              <div className="relative">
-                <input type={show ? "text" : "password"} value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} placeholder="Your password" autoComplete="current-password" className={`${inputCls} pr-16`} />
-                <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-brand-magenta/80 hover:text-brand-magenta">
-                  {show ? "Hide" : "Show"}
-                </button>
-              </div>
-            </Field>
-            {err && <p className="-mt-1 text-sm text-red-500" role="alert">{err}</p>}
-            <div className="text-right">
-              <Link to="/forgot-password" className="text-sm font-semibold text-brand-magenta hover:underline">Forgot password?</Link>
-            </div>
-            <SubmitButton disabled={busy}>{busy ? "Signing in…" : "Sign in"}</SubmitButton>
-          </form>
-          <p className="mt-5 text-center text-[15px] text-gray-600">
-            Don't have an account? <Link to="/plans" className="font-semibold text-brand-magenta hover:underline">Sign up</Link>
-          </p>
-        </>
-      )}
+        </Field>
+        {err && <p className="-mt-1 text-sm text-red-500" role="alert">{err}</p>}
+        <div className="text-right">
+          <Link to="/forgot-password" className="text-sm font-semibold text-brand-magenta hover:underline">Forgot password?</Link>
+        </div>
+        <SubmitButton disabled={busy}>{busy ? "Signing in…" : "Sign in"}</SubmitButton>
+      </form>
+      <p className="mt-5 text-center text-[15px] text-gray-600">
+        Don't have an account? <Link to="/plans" className="font-semibold text-brand-magenta hover:underline">Sign up</Link>
+      </p>
     </AuthShell>
   );
 }

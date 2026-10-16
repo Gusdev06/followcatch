@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { AuthShell, Field, GoogleButton, inputCls, OrDivider, SubmitButton } from "../components/funnel/AuthShell";
+import { AuthShell, Field, inputCls, SubmitButton } from "../components/funnel/AuthShell";
 import { findPlan, parseCycle, priceOf } from "../components/funnel/plan";
 import { money } from "../components/funnel/shared";
 import { api, ApiFail, isValidUsername, normalizeUsername } from "../lib/api";
@@ -24,7 +24,6 @@ export default function Signup() {
   const [show, setShow] = useState(false);
   const [err, setErr] = useState<"" | "email" | "pw" | "taken" | "generic">("");
   const [busy, setBusy] = useState(false);
-  const [googleNote, setGoogleNote] = useState(false);
 
   useEffect(() => { document.title = "Join FollowCatch"; }, []);
 
@@ -79,9 +78,6 @@ export default function Signup() {
           You already have an active plan. <Link to="/app" className="font-semibold underline">Open your dashboard</Link>
         </div>
       )}
-      <GoogleButton label="Continue with Google" onClick={() => setGoogleNote(true)} />
-      {googleNote && <p className="mt-2 text-center text-[13px] text-gray-600">Google sign-in is coming soon. Use your email below for now.</p>}
-      <OrDivider />
       <form
         noValidate
         onSubmit={(e) => { e.preventDefault(); if (!busy) void submit(); }}
