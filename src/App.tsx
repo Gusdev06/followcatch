@@ -11,6 +11,7 @@ import Welcome from "./pages/Welcome";
 import Dashboard from "./pages/Dashboard";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import Admin from "./pages/Admin";
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
       <Route path="/story-viewer" element={<StoryViewer />} />
       <Route path="/app" element={<Dashboard />} />
       <Route path="/welcome" element={<Welcome />} />
+      <Route path="/admin" element={<Admin />} />
       <Route path="/terms" element={<Legal page="terms" />} />
       <Route path="/privacy" element={<Legal page="privacy" />} />
       <Route path="/refund-policy" element={<Legal page="refund" />} />

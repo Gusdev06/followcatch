@@ -2,6 +2,7 @@
 // função da Vercel (api/index.ts). Contrato: ../CONTRATO.md, ../CONTRATO-F2.md, src/lib/types.ts.
 import { Hono, type Context } from "hono";
 import type { Cycle, PlanId } from "../src/lib/types.js";
+import { adminUsers, requireAdmin } from "./admin.js";
 import { authenticate, closeSession, createUser, currentUser, getMe, hasAccess, openSession, requestPasswordReset, requireUser, resetPassword } from "./auth.js";
 import { billingPortalUrl, confirmWelcome, createCheckout, createEmbeddedCheckout, handleEvent, PkError, verifySignature } from "./billing.js";
 import { searchesToday, spentToday } from "./cache.js";
@@ -351,6 +352,18 @@ app.post("/api/webhooks/stripe", async (c) => {
   } catch (e) {
     console.error(`[stripe webhook] ${ev.type} ${ev.id} falhou:`, e);
     return c.json({ error: "provider_error", message: "Processing failed." }, 500); // 5xx = Stripe tenta de novo
+  }
+});
+
+// ---- painel interno --------------------------------------------------------
+
+app.get("/api/admin/users", async (c) => {
+  try {
+    requireAdmin(c);
+    c.header("cache-control", "private, no-store");
+    return c.json(await adminUsers());
+  } catch (e) {
+    return fail(c, e);
   }
 });
 
