@@ -159,6 +159,44 @@ CREATE TABLE IF NOT EXISTS ${SCHEMA}.user_searches (
   PRIMARY KEY (user_id, username)
 );
 CREATE INDEX IF NOT EXISTS user_searches_recent ON ${SCHEMA}.user_searches (user_id, at DESC);
+
+-- Uma linha por consulta de perfil, inclusive cache hits e visitantes sem conta.
+CREATE TABLE IF NOT EXISTS ${SCHEMA}.search_events (
+  id text PRIMARY KEY,
+  visitor_id text NOT NULL,
+  user_id text REFERENCES ${SCHEMA}.users(id) ON DELETE SET NULL,
+  username text NOT NULL,
+  outcome text NOT NULL DEFAULT 'pending',
+  source text NOT NULL DEFAULT 'live',
+  at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS search_events_recent ON ${SCHEMA}.search_events (at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS search_events_user ON ${SCHEMA}.search_events (user_id, at DESC);
+CREATE INDEX IF NOT EXISTS search_events_visitor ON ${SCHEMA}.search_events (visitor_id, at DESC);
+
+CREATE TABLE IF NOT EXISTS ${SCHEMA}.migrations (id text PRIMARY KEY, at timestamptz NOT NULL DEFAULT now());
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM ${SCHEMA}.migrations WHERE id = 'search_events_legacy_v1') THEN
+    -- O limitador antigo guardava só perfis novos por IP/conta/dia, sem resultado.
+    -- Não inferir identidade por IP nem apresentar esse histórico como completo.
+    INSERT INTO ${SCHEMA}.search_events (id, visitor_id, user_id, username, outcome, source, at)
+      SELECT 'legacy-rate:' || md5(s.who || ':' || s.day::text || ':' || s.username),
+             'legacy:' || md5(s.who), u.id, s.username, 'unknown', 'legacy', s.at
+      FROM ${SCHEMA}.searches s
+      LEFT JOIN ${SCHEMA}.users u ON s.who = 'user:' || u.id
+      ON CONFLICT DO NOTHING;
+    INSERT INTO ${SCHEMA}.search_events (id, visitor_id, user_id, username, outcome, source, at)
+      SELECT 'legacy-user:' || md5(s.user_id || ':' || s.username),
+             'legacy:' || md5('user:' || s.user_id), s.user_id, s.username, 'success', 'legacy', s.at
+      FROM ${SCHEMA}.user_searches s
+      WHERE NOT EXISTS (
+        SELECT 1 FROM ${SCHEMA}.search_events e
+        WHERE e.user_id = s.user_id AND e.username = s.username
+          AND (e.at AT TIME ZONE 'UTC')::date = (s.at AT TIME ZONE 'UTC')::date
+      ) ON CONFLICT DO NOTHING;
+    INSERT INTO ${SCHEMA}.migrations (id) VALUES ('search_events_legacy_v1');
+  END IF;
+END $$;
 `;
 
 let migrated: Promise<void> | null = null;

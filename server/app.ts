@@ -2,7 +2,7 @@
 // função da Vercel (api/index.ts). Contrato: ../CONTRATO.md, ../CONTRATO-F2.md, src/lib/types.ts.
 import { Hono, type Context } from "hono";
 import type { Cycle, PlanId } from "../src/lib/types.js";
-import { adminUsers, requireAdmin } from "./admin.js";
+import { adminSearches, adminUsers, requireAdmin } from "./admin.js";
 import { authenticate, closeSession, createUser, currentUser, getMe, hasAccess, openSession, requestPasswordReset, requireUser, resetPassword } from "./auth.js";
 import { billingPortalUrl, confirmWelcome, createCheckout, createEmbeddedCheckout, handleEvent, PkError, verifySignature } from "./billing.js";
 import { searchesToday, spentToday } from "./cache.js";
@@ -13,6 +13,7 @@ import {
 import { q } from "./db.js";
 import { classify } from "./gender.js";
 import { ApiErr, cachedProfile, getList, getProfile, normalizeUsername, teaser, type Who } from "./service.js";
+import { finishSearch, startSearch } from "./search-activity.js";
 
 export const app = new Hono();
 
@@ -66,13 +67,18 @@ app.get("/api/health", async (c) => {
 // ---- busca -----------------------------------------------------------------
 
 app.get("/api/profile", async (c) => {
+  c.header("cache-control", "private, no-store");
+  let eventId: string | null = null;
   try {
     const u = normalizeUsername(c.req.query("u"));
     const { who, userId } = await whoIs(c);
+    eventId = await startSearch(c, userId, u);
     const p = await getProfile(u, who);
+    await finishSearch(eventId, p.private ? "private" : "success");
     await rememberSearch(userId, u);
     return c.json(p);
   } catch (e) {
+    await finishSearch(eventId, e instanceof ApiErr ? e.code : "provider_error");
     return fail(c, e);
   }
 });
@@ -356,6 +362,16 @@ app.post("/api/webhooks/stripe", async (c) => {
 });
 
 // ---- painel interno --------------------------------------------------------
+
+app.get("/api/admin/searches", async (c) => {
+  c.header("cache-control", "private, no-store");
+  try {
+    requireAdmin(c);
+    return c.json(await adminSearches(c.req.query()));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
 
 app.get("/api/admin/users", async (c) => {
   try {

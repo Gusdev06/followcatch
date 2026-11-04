@@ -1,5 +1,6 @@
 // Painel interno: quem se cadastrou. Pede a ADMIN_KEY uma vez e guarda no navegador.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import AdminSearches from "./AdminSearches";
 
 type AdminUser = {
   id: string;
@@ -101,7 +102,7 @@ function KeyGate({ onKey, error }: { onKey: (k: string) => void; error: string }
   const [v, setV] = useState("");
   return (
     <div className="mx-auto mt-24 max-w-sm px-4">
-      <h1 className="text-xl font-extrabold text-ink">Painel · cadastros</h1>
+      <h1 className="text-xl font-extrabold text-ink">Painel · consultas e cadastros</h1>
       <p className="mt-1 text-sm text-gray-500">Cole a ADMIN_KEY. Fica salva só neste navegador.</p>
       <form className="mt-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (v.trim()) onKey(v.trim()); }}>
         <input type="password" autoFocus value={v} onChange={(e) => setV(e.target.value)} className="min-w-0 flex-1 rounded-xl border border-line px-3 py-2 text-sm outline-none focus:border-brand-magenta" placeholder="ADMIN_KEY" />
@@ -119,6 +120,8 @@ export default function Admin() {
   const [loading, setLoading] = useState(false);
   const [qtext, setQtext] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [section, setSection] = useState<"searches" | "users">("searches");
+  const clearKey = useCallback(() => { store.set(""); setKey(""); setData(null); }, []);
 
   const load = useCallback(async (k: string) => {
     setLoading(true); setErr("");
@@ -191,17 +194,25 @@ export default function Admin() {
       <div className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-extrabold text-ink">Cadastros</h1>
+            <h1 className="text-2xl font-extrabold text-ink">Atividade · FollowCatch</h1>
             <p className="text-[13px] text-gray-500">{data ? `Atualizado ${dt(data.generatedAt)}` : loading ? "Carregando…" : ""}</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => void load(key)} disabled={loading} className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold text-ink disabled:opacity-50">{loading ? "Atualizando…" : "Atualizar"}</button>
-            <button onClick={exportCsv} disabled={!shown.length} className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold text-ink disabled:opacity-50">CSV</button>
-            <button onClick={() => { store.set(""); setKey(""); setData(null); }} className="rounded-xl px-3 py-2 text-sm font-semibold text-gray-500">Sair</button>
+            {section === "users" && <><button onClick={() => void load(key)} disabled={loading} className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold text-ink disabled:opacity-50">{loading ? "Atualizando…" : "Atualizar"}</button>
+            <button onClick={exportCsv} disabled={!shown.length} className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold text-ink disabled:opacity-50">CSV</button></>}
+            <button onClick={clearKey} className="rounded-xl px-3 py-2 text-sm font-semibold text-gray-500">Sair</button>
           </div>
         </div>
 
         {err && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
+
+        <div className="mt-5 flex gap-2 border-b border-line" aria-label="Seções do admin">
+          {([["searches", "Consultas"], ["users", "Cadastros"]] as const).map(([value, label]) => (
+            <button key={value} aria-pressed={section === value} onClick={() => setSection(value)} className={`border-b-2 px-4 py-3 text-sm font-bold ${section === value ? "border-brand-magenta text-brand-magenta" : "border-transparent text-gray-500"}`}>{label}</button>
+          ))}
+        </div>
+
+        {section === "searches" ? <AdminSearches adminKey={key} onUnauthorized={clearKey} /> : <>
 
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
           <Kpi label="Total" value={stats.total} />
@@ -259,6 +270,7 @@ export default function Admin() {
           </table>
         </div>
         <p className="mt-2 text-[12px] text-gray-400">{shown.length} de {users.length} cadastros</p>
+        </>}
       </div>
     </div>
   );
