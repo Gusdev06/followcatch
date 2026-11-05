@@ -9,6 +9,7 @@ import { Sparkles } from "../components/funnel/shared";
 import { useSearch } from "../components/funnel/useSearch";
 import { isMock } from "../components/funnel/mock";
 import { isActive, useMe } from "../lib/session";
+import { trackStep } from "../lib/analytics";
 
 // Ritmo do loading: dura o tempo real do perfil, nunca menos que 6 s no total.
 const FIND_MIN = 3000; // "Finding profile…" no mínimo
@@ -40,6 +41,7 @@ function SearchFlow({ raw }: { raw: string }) {
   }, [profileOk, readyAt]);
 
   const done = readyAt !== null && now >= readyAt + COMPLETE_MS + FOUND_MS;
+  useEffect(() => { if (done) trackStep("preview"); }, [done]);
   useEffect(() => {
     if (done || s.profile.status === "error") return;
     const id = setInterval(() => setNow(Date.now()), 100);

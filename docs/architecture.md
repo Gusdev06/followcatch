@@ -52,6 +52,7 @@ Lista completa em [server/app.ts](../server/app.ts). Grupos:
 - **Busca:** `/api/profile`, `/api/following`, `/api/followers`, `/api/gender`, `/api/stories` (ainda devolve `unavailable`), `/api/img` (proxy de imagem do CDN do Instagram).
 - **Conta:** `/api/auth/*` (signup, login, logout, forgot, reset), `/api/me`, `/api/me/searches`.
 - **Pagamento:** `/api/checkout`, `/api/checkout/embedded`, `/api/welcome`, `/api/billing-portal`, `/api/webhooks/stripe`, `/api/webhooks/paymentkit`.
+- **Funil e ao vivo:** `/api/track`, `/api/live` (públicas, só gravam) e `/api/admin/funnel`, `/api/admin/visitors`, `/api/admin/live` (`ADMIN_KEY`). Ver [features/admin-funnel.md](features/admin-funnel.md).
 - **Admin:** `/api/admin/users`, `/api/admin/searches`, `/api/admin/costs`.
 - **Operação:** `/api/health` (estado do banco, gasto do dia, cota do IP).
 
@@ -66,6 +67,7 @@ DDL completo e idempotente em [server/db.ts](../server/db.ts).
 | `runs` | Cada run de provedor: actor, @, itens, custo estimado, tempo, sucesso, `who` (`ip:` ou `user:`) e `bucket` (`visitor` ou `subscriber`). Base do disjuntor e do balde dos visitantes. Runs anteriores a 2026-11-04 têm `who` e `bucket` nulos. |
 | `searches` | Cota diária: um registro por (quem, dia, @). `who` = `ip:<ip>` ou `user:<id>`. |
 | `users`, `sessions`, `password_resets` | Contas e autenticação. |
+| `funnel_events`, `live_sessions` | Etapas do funil e batimento do ao vivo. Sem IP. |
 | `subscriptions`, `checkouts`, `webhook_events` | Assinaturas, tentativas de checkout e eventos de webhook (idempotência e auditoria). |
 | `user_searches` | Últimos @ consultados por conta (lista "recentes" do dashboard). |
 | `search_events` | Log de cada consulta para o admin. Ver [features/search-activity.md](features/search-activity.md). Coluna `cache` (`hit` ou `miss`) mede se a consulta de perfil pagou coleta. |

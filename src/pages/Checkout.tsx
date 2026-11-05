@@ -9,6 +9,7 @@ import { site } from "../config/site";
 import { api, ApiFail, isValidUsername, normalizeUsername, type StripeCheckout } from "../lib/api";
 import { isActive, useMe, writePending } from "../lib/session";
 import type { Cycle, Me, PlanId } from "../lib/types";
+import { trackStep } from "../lib/analytics";
 
 // Checkout embutido com Stripe direto (Payment Element). Backend: POST /api/checkout/embedded
 // cria a assinatura `incomplete` e devolve o client_secret da 1ª fatura; confirmPayment cobra
@@ -294,6 +295,7 @@ function PayForm({
   };
 
   const pay = async () => {
+    trackStep("pay_click");
     if (!stripe || !elements || busy) return;
     setRootErr("");
     const n = name.trim();

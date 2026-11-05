@@ -15,6 +15,7 @@ import { classify } from "./gender.js";
 import { ApiErr, budgets, cachedProfile, getList, getProfile, normalizeUsername, teaser, type LookupMeta, type Who } from "./service.js";
 import { finishSearch, startSearch } from "./search-activity.js";
 import { cleanTracking } from "./utmify.js";
+import { funnelReport, liveReport, parseRange, recordBeat, recordStep, visitorsReport } from "./funnel.js";
 
 export const app = new Hono();
 
@@ -368,7 +369,50 @@ app.post("/api/webhooks/stripe", async (c) => {
   }
 });
 
+// ---- funil e ao vivo: telemetria nunca derruba a página nem devolve dado ----
+
+app.post("/api/track", async (c) => {
+  await recordStep(c).catch((e) => console.warn("[track]", e instanceof Error ? e.message : e));
+  return c.body(null, 204);
+});
+
+app.post("/api/live", async (c) => {
+  await recordBeat(c).catch((e) => console.warn("[live]", e instanceof Error ? e.message : e));
+  return c.body(null, 204);
+});
+
 // ---- painel interno --------------------------------------------------------
+
+app.get("/api/admin/funnel", async (c) => {
+  c.header("cache-control", "private, no-store");
+  try {
+    requireAdmin(c);
+    return c.json(await funnelReport(parseRange(c.req.query("range"), "7d")));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+app.get("/api/admin/visitors", async (c) => {
+  c.header("cache-control", "private, no-store");
+  try {
+    requireAdmin(c);
+    return c.json(await visitorsReport(parseRange(c.req.query("range"), "today")));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+app.get("/api/admin/live", async (c) => {
+  c.header("cache-control", "private, no-store");
+  try {
+    requireAdmin(c);
+    return c.json(await liveReport(c.req.query("h")));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
 
 app.get("/api/admin/searches", async (c) => {
   c.header("cache-control", "private, no-store");

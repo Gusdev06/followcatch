@@ -12,8 +12,10 @@ import Dashboard from "./pages/Dashboard";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import Admin from "./pages/Admin";
+import { usePageTracking } from "./lib/analytics";
 
 export default function App() {
+  usePageTracking();
   return (
     <Routes>
       <Route path="/" element={<Landing />} />

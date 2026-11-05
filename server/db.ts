@@ -182,6 +182,33 @@ CREATE INDEX IF NOT EXISTS search_events_recent ON ${SCHEMA}.search_events (at D
 CREATE INDEX IF NOT EXISTS search_events_user ON ${SCHEMA}.search_events (user_id, at DESC);
 CREATE INDEX IF NOT EXISTS search_events_visitor ON ${SCHEMA}.search_events (visitor_id, at DESC);
 
+-- Funil e ao vivo do /admin. Sem IP de propósito: só geo aproximada dos headers da Vercel.
+CREATE TABLE IF NOT EXISTS ${SCHEMA}.funnel_events (
+  id bigserial PRIMARY KEY,
+  lead_id text NOT NULL,
+  step text NOT NULL,
+  user_id text REFERENCES ${SCHEMA}.users(id) ON DELETE SET NULL,
+  country text,
+  meta jsonb,
+  at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS funnel_events_at ON ${SCHEMA}.funnel_events (at);
+CREATE INDEX IF NOT EXISTS funnel_events_lead ON ${SCHEMA}.funnel_events (lead_id, at DESC);
+CREATE TABLE IF NOT EXISTS ${SCHEMA}.live_sessions (
+  lead_id text PRIMARY KEY,
+  country text,
+  region text,
+  city text,
+  device text,
+  ad text,
+  campaign text,
+  step text,
+  beats int NOT NULL DEFAULT 1,
+  first_seen timestamptz NOT NULL DEFAULT now(),
+  last_seen timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS live_sessions_last ON ${SCHEMA}.live_sessions (last_seen);
+
 CREATE TABLE IF NOT EXISTS ${SCHEMA}.migrations (id text PRIMARY KEY, at timestamptz NOT NULL DEFAULT now());
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM ${SCHEMA}.migrations WHERE id = 'search_events_legacy_v1') THEN

@@ -11,6 +11,12 @@ Formato:
 **Consequências:** o que isso implica ou restringe.
 ```
 
+## 2026-11-05 — Painel de funil sem IP
+
+**Decisão:** portar Funil, Visitantes e Ao vivo do painel do The Kingdom of Love, sem gravar nem mostrar IP.
+**Motivo:** o Gusta pediu painel igual, mas o AGENTS.md proíbe IP cru na API. Cidade, região e país bastam para ler o tráfego.
+**Consequências:** não dá para distinguir duas pessoas pelo IP; cada navegador conta como um visitante.
+
 ## 2026-11-05 — Vendas vão à UTMify pela API, não pela integração nativa Stripe
 
 **Decisão:** o webhook da Stripe envia venda, renovação, reembolso e chargeback à API de pedidos da UTMify. As UTMs são capturadas no front e gravadas no metadata da assinatura.
