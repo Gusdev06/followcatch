@@ -1,9 +1,13 @@
 // Único lugar do server que fala com a Apify. Registro de actors: trocar de fornecedor
 // é mudar uma entrada de ACTORS, não as rotas.
 //
-// Formatos conferidos nos datasets reais em ../sonda/*.json (15/10/2026):
-//  - perfil (apify~instagram-profile-scraper): camelCase, followersCount, relatedProfiles (snake_case dentro)
-//  - following/followers (datadoping~*): snake_case, ordem do dataset = ordem de recência
+// Formatos conferidos em datasets reais:
+//  - perfil (apify~instagram-profile-scraper, 15/10/2026): camelCase, followersCount, relatedProfiles (snake_case dentro)
+//  - following/followers (scraping_solutions~*-no-cookies, 04/11/2026): snake_case + username_scrape.
+//    Ordem do following conferida contra o app ("Date followed: latest"): idêntica. O datadoping,
+//    usado antes, NÃO devolvia em ordem de recência. Detalhes e custos: docs/providers.md.
+//
+// Custos = preço da faixa FREE da Apify (plano atual). Ao assinar um plano, trocar pelos da faixa.
 
 import type { MiniAccount } from "../../src/lib/types.js";
 
@@ -18,6 +22,10 @@ type ActorDef = {
   maxChargeUsd: number;
 };
 
+const LIST_ACTOR = "scraping_solutions~instagram-scraper-followers-following-no-cookies";
+/** Itens por lista. Custo é linear: subir isso sobe o custo de toda consulta nova. */
+export const LIST_SIZE = 25;
+
 export const ACTORS: Record<Kind, ActorDef> = {
   profile: {
     slug: "apify~instagram-profile-scraper",
@@ -25,18 +33,19 @@ export const ACTORS: Record<Kind, ActorDef> = {
     cost: (n) => Math.max(1, n) * 0.0026,
     maxChargeUsd: 0.02,
   },
-  // datadoping exige max_count >= 50 no schema (HTTP 400 abaixo disso, sem cobrar).
+  // resultsLimit mínimo é 25 no schema do actor. Cobrança por item entregue
+  // (FREE 0,00085 · BRONZE 0,0007 · SILVER 0,00065 · GOLD 0,0006).
   following: {
-    slug: "datadoping~instagram-following-scraper",
-    input: (u) => ({ usernames: [u], max_count: 50 }),
-    cost: (n) => n * 0.0014,
-    maxChargeUsd: 0.1,
+    slug: LIST_ACTOR,
+    input: (u) => ({ Account: [u], resultsLimit: LIST_SIZE, dataToScrape: "Followings" }),
+    cost: (n) => n * 0.00085,
+    maxChargeUsd: 0.05,
   },
   followers: {
-    slug: "datadoping~instagram-followers-scraper",
-    input: (u) => ({ usernames: [u], max_count: 50 }),
-    cost: (n) => n * 0.0014,
-    maxChargeUsd: 0.1,
+    slug: LIST_ACTOR,
+    input: (u) => ({ Account: [u], resultsLimit: LIST_SIZE, dataToScrape: "Followers" }),
+    cost: (n) => n * 0.00085,
+    maxChargeUsd: 0.05,
   },
 };
 
@@ -168,7 +177,7 @@ export function toList(items: Record<string, unknown>[], wanted: string): MiniAc
   const seen = new Set<string>();
   const out: MiniAccount[] = [];
   for (const d of items) {
-    const src = user(str(d, "following_of", "follower_of", "sourceUsername", "source_username"));
+    const src = user(str(d, "username_scrape", "following_of", "follower_of", "sourceUsername", "source_username"));
     if (src && src !== wanted) continue;
     const m = toMini(d);
     if (!m || seen.has(m.username) || m.username === wanted) continue;
