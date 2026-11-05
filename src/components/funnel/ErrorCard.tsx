@@ -5,7 +5,7 @@ const COPY: Record<ApiErrorCode, { emoji: string; title: (u: string) => string; 
   invalid: { emoji: "✏️", title: () => "That doesn't look like a username", body: "Instagram usernames use only letters, numbers, dots and underscores, up to 30 characters." },
   not_found: { emoji: "🔍", title: (u) => `We couldn't find @${u}`, body: "Double-check the spelling. The account may have been renamed or deleted." },
   private: { emoji: "🔒", title: (u) => `@${u} is private`, body: "We only work with public data, so private accounts can't be checked." },
-  rate_limited: { emoji: "⏳", title: () => "You've used today's free searches", body: "Free searches reset every 24 hours. A plan unlocks unlimited lookups." },
+  rate_limited: { emoji: "⏳", title: () => "No free searches left right now", body: "Free searches are limited and reset every 24 hours. A plan unlocks the full following and follower lists." },
   provider_error: { emoji: "📡", title: () => "Instagram is slow to answer right now", body: "This is on our side, not yours. Give it a minute and try again." },
   unauthorized: { emoji: "🔑", title: () => "Please log in again", body: "Your session ended. Log in to keep searching." },
   email_taken: { emoji: "✉️", title: () => "That email already has an account", body: "Log in with it instead." },
@@ -15,9 +15,10 @@ const COPY: Record<ApiErrorCode, { emoji: string; title: (u: string) => string; 
 
 export function ErrorCard({ code, username, onRetry, subscriber = false }: { code: ApiErrorCode; username: string; onRetry: () => void; subscriber?: boolean }) {
   const base = COPY[code] ?? COPY.provider_error;
-  // Assinante não tem limite por IP, mas tem teto diário anti-abuso.
+  // Assinante não tem limite por IP, mas tem cota de uso justo por dia e por semana (sem números aqui:
+  // eles mudam por plano e por env; a mensagem exata vem da API em ApiError.message).
   const c = subscriber && code === "rate_limited"
-    ? { ...base, title: () => "You've hit today's lookup limit", body: "Your plan includes 50 new lookups a day, and the count resets every 24 hours." }
+    ? { ...base, title: () => "You've reached your lookup limit", body: "Your plan has a fair-use limit on new profiles, per day and per week. The daily count resets at midnight UTC and the weekly count on Monday. Profiles you checked recently still open." }
     : base;
   return (
     <div className="mx-auto w-full max-w-3xl rounded-card border border-line bg-white px-6 py-10 text-center shadow-[0_20px_50px_-28px_rgba(17,24,39,0.25)]">

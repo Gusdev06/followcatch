@@ -6,6 +6,7 @@ import { ChatBubble, Footer, Header } from "../../components/ui";
 type Page = "terms" | "privacy" | "refund" | "contact";
 
 const UPDATED = "October 15, 2026";
+const TERMS_UPDATED = "November 4, 2026";
 const N = site.name;
 const mail = <a href={`mailto:${site.supportEmail}`} className="font-semibold text-brand-magenta hover:underline">{site.supportEmail}</a>;
 
@@ -60,10 +61,21 @@ function Terms() {
           </UL>
           <p>We may suspend or close accounts that violate these Terms, without a refund where the violation is serious.</p>
         </S>
-        <S n={5} title="Your account">
+        <S n={5} title="Fair-use limits">
+          <p>Every new profile we look up costs us real money to collect, so we limit how many new profiles each person can look up. This keeps the Service available and fairly priced for everyone.</p>
+          <UL>
+            <li><strong>Without a subscription:</strong> a small number of new profiles per day (currently 5). Free lookups can also pause for everyone on a very busy day.</li>
+            <li><strong>With a subscription:</strong> up to 10 new profiles per day, and a weekly limit that depends on your plan (currently 27 on Starter and 40 on Premium).</li>
+            <li>A "new profile" is a username you haven't already looked up that same day. Looking up the same profile again that day doesn't count, and profiles we checked recently may open without counting.</li>
+            <li>Daily counts reset at 00:00 UTC. Weekly counts reset every Monday at 00:00 UTC.</li>
+            <li>A lookup that fails on our side or on our data provider's side isn't counted.</li>
+          </UL>
+          <p>We may change these limits. Changes are announced as described under "Changes to these Terms", and this page always shows the current limits.</p>
+        </S>
+        <S n={6} title="Your account">
           <p>You are responsible for keeping your login details secure and for all activity under your account. Tell us right away at {mail} if you suspect unauthorized use.</p>
         </S>
-        <S n={6} title="Subscriptions, renewals and cancellation">
+        <S n={7} title="Subscriptions, renewals and cancellation">
           <UL>
             <li>Paid plans are subscriptions billed in advance, weekly or quarterly, depending on the plan you choose. The price and billing period are shown before you pay.</li>
             <li>Subscriptions renew automatically at the end of each billing period at the then-current price until you cancel.</li>
@@ -71,22 +83,22 @@ function Terms() {
             <li>We'll notify you in advance of any price change, and it will only apply from your next billing period.</li>
           </UL>
         </S>
-        <S n={7} title="Refunds">
+        <S n={8} title="Refunds">
           <p>New purchases are covered by a 7-day full refund guarantee. The full details are in our <Link to="/refund-policy" className="font-semibold text-brand-magenta hover:underline">Refund Policy</Link>, which is part of these Terms.</p>
         </S>
-        <S n={8} title="Intellectual property">
+        <S n={9} title="Intellectual property">
           <p>The {N} name, logo, software and site content belong to us. You may not copy, modify or distribute them without our permission. Instagram content shown through the Service remains the property of its owners.</p>
         </S>
-        <S n={9} title="Disclaimers">
+        <S n={10} title="Disclaimers">
           <p>The Service is provided "as is" and "as available". To the fullest extent allowed by law, we disclaim all warranties, express or implied, including merchantability, fitness for a particular purpose and non-infringement. We don't guarantee the Service will be uninterrupted or error-free, or that any third-party data source will remain available.</p>
         </S>
-        <S n={10} title="Limitation of liability">
+        <S n={11} title="Limitation of liability">
           <p>To the fullest extent allowed by law, {N} will not be liable for indirect, incidental, special or consequential damages, and our total liability for any claim related to the Service is limited to the amount you paid us in the 3 months before the claim.</p>
         </S>
-        <S n={11} title="Changes to these Terms">
+        <S n={12} title="Changes to these Terms">
           <p>We may update these Terms from time to time. When we do, we'll change the "Last updated" date above, and for material changes we'll notify subscribers by email. Continuing to use the Service after an update means you accept the new Terms.</p>
         </S>
-        <S n={12} title="Contact">
+        <S n={13} title="Contact">
           <p>Questions about these Terms? Email us at {mail}.</p>
         </S>
       </div>
@@ -242,7 +254,7 @@ export default function Legal({ page }: { page: Page | string }) {
           </span>
           <h1 className="mt-5 text-[32px] font-extrabold tracking-tight text-ink sm:text-[40px]">{m.title}</h1>
           {m.sub && <p className="mt-2 text-gray-600">{m.sub}</p>}
-          <p className={m.sub ? "mt-1 text-sm text-gray-500" : "mt-2 text-gray-600"}>Last updated: {UPDATED}</p>
+          <p className={m.sub ? "mt-1 text-sm text-gray-500" : "mt-2 text-gray-600"}>Last updated: {p === "terms" ? TERMS_UPDATED : UPDATED}</p>
         </div>
         {p === "contact" ? (
           <div className="mx-auto mt-10 max-w-4xl">
