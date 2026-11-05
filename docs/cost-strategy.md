@@ -15,6 +15,8 @@
 5. **O custo de uma feature é calculado por usuário por semana e comparado com a receita do plano** antes de construir.
 6. **Medir antes de otimizar além do óbvio.** Taxa de cache hit, custo por assinante e custo por conversão precisam ser medidos; hoje boa parte não é (ver seção 8).
 
+> **2026-11-05, em produção:** `VISITOR_DAILY_USD` = 10 e `MAX_DAILY_USD` = 15, decisão do Gusta com a campanha da Meta no ar. Apify no plano Starter, limite de US$ 19 no ciclo até 04/12. Na largada, os dados custaram perto de metade do gasto com anúncio (amostra pequena): reavaliar com mais vendas. O plano Free devolve 0 item com status de sucesso no actor das listas.
+
 ## 2. Custo de cada operação (hoje)
 
 | Operação | Provedor | Custo estimado | Teto por run | Cache |
