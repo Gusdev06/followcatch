@@ -69,6 +69,11 @@ CREATE TABLE IF NOT EXISTS ${SCHEMA}.runs (
   at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS runs_at ON ${SCHEMA}.runs (at);
+-- Quem gerou o gasto: who = ip:<ip> ou user:<id>; bucket = 'visitor' ou 'subscriber'.
+-- Runs antigos ficam com NULL (contam só no disjuntor global).
+ALTER TABLE ${SCHEMA}.runs ADD COLUMN IF NOT EXISTS who text;
+ALTER TABLE ${SCHEMA}.runs ADD COLUMN IF NOT EXISTS bucket text;
+CREATE INDEX IF NOT EXISTS runs_bucket_at ON ${SCHEMA}.runs (bucket, at);
 
 -- "quem" = ip:<ip> (grátis) ou user:<id> (assinante)
 CREATE TABLE IF NOT EXISTS ${SCHEMA}.searches (
@@ -170,6 +175,9 @@ CREATE TABLE IF NOT EXISTS ${SCHEMA}.search_events (
   source text NOT NULL DEFAULT 'live',
   at timestamptz NOT NULL DEFAULT now()
 );
+-- Se a consulta foi atendida sem pagar ('hit': cache ou coleta já feita por outro) ou se disparou
+-- coleta paga ('miss'). NULL = falhou antes de saber, ou registro antigo.
+ALTER TABLE ${SCHEMA}.search_events ADD COLUMN IF NOT EXISTS cache text;
 CREATE INDEX IF NOT EXISTS search_events_recent ON ${SCHEMA}.search_events (at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS search_events_user ON ${SCHEMA}.search_events (user_id, at DESC);
 CREATE INDEX IF NOT EXISTS search_events_visitor ON ${SCHEMA}.search_events (visitor_id, at DESC);

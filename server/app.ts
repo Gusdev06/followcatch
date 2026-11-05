@@ -2,7 +2,7 @@
 // função da Vercel (api/index.ts). Contrato: ../CONTRATO.md, ../CONTRATO-F2.md, src/lib/types.ts.
 import { Hono, type Context } from "hono";
 import type { Cycle, PlanId } from "../src/lib/types.js";
-import { adminSearches, adminUsers, requireAdmin } from "./admin.js";
+import { adminCosts, adminSearches, adminUsers, requireAdmin } from "./admin.js";
 import { authenticate, closeSession, createUser, currentUser, getMe, hasAccess, openSession, requestPasswordReset, requireUser, resetPassword } from "./auth.js";
 import { billingPortalUrl, confirmWelcome, createCheckout, createEmbeddedCheckout, handleEvent, PkError, verifySignature } from "./billing.js";
 import { searchesToday, spentToday } from "./cache.js";
@@ -12,7 +12,7 @@ import {
 } from "./stripe.js";
 import { q } from "./db.js";
 import { classify } from "./gender.js";
-import { ApiErr, cachedProfile, getList, getProfile, normalizeUsername, teaser, type Who } from "./service.js";
+import { ApiErr, budgets, cachedProfile, getList, getProfile, normalizeUsername, teaser, type LookupMeta, type Who } from "./service.js";
 import { finishSearch, startSearch } from "./search-activity.js";
 
 export const app = new Hono();
@@ -33,8 +33,9 @@ async function whoIs(c: Context): Promise<{ who: Who; userId: string | null; sub
   const ip = ipOf(c);
   const u = await currentUser(c).catch(() => null);
   if (!u) return { who: { ip, subscriberId: null }, userId: null, subscriber: false };
-  const sub = hasAccess(await getMe(u));
-  return { who: { ip, subscriberId: sub ? u.id : null }, userId: u.id, subscriber: sub };
+  const me = await getMe(u);
+  const sub = hasAccess(me);
+  return { who: { ip, subscriberId: sub ? u.id : null, plan: sub ? me.plan : null }, userId: u.id, subscriber: sub };
 }
 
 async function rememberSearch(userId: string | null, username: string) {
@@ -49,12 +50,16 @@ async function rememberSearch(userId: string | null, username: string) {
 app.get("/api/health", async (c) => {
   try {
     const s = await spentToday();
+    const v = await spentToday("visitor");
+    const b = budgets();
     return c.json({
       ok: true,
       db: true,
       spentTodayUsd: Number(s.usd.toFixed(4)),
       runsToday: s.runs,
-      maxDailyUsd: Number(process.env.MAX_DAILY_USD || 3),
+      maxDailyUsd: b.globalUsd,
+      visitorSpentTodayUsd: Number(v.usd.toFixed(4)),
+      visitorDailyUsd: b.visitorUsd,
       searchesTodayForYou: await searchesToday(`ip:${ipOf(c)}`),
       freeSearchesPerIp: Number(process.env.FREE_SEARCHES_PER_IP || 5),
     });
@@ -69,16 +74,17 @@ app.get("/api/health", async (c) => {
 app.get("/api/profile", async (c) => {
   c.header("cache-control", "private, no-store");
   let eventId: string | null = null;
+  const meta: LookupMeta = {};
   try {
     const u = normalizeUsername(c.req.query("u"));
     const { who, userId } = await whoIs(c);
     eventId = await startSearch(c, userId, u);
-    const p = await getProfile(u, who);
-    await finishSearch(eventId, p.private ? "private" : "success");
+    const p = await getProfile(u, who, meta);
+    await finishSearch(eventId, p.private ? "private" : "success", meta.cache);
     await rememberSearch(userId, u);
     return c.json(p);
   } catch (e) {
-    await finishSearch(eventId, e instanceof ApiErr ? e.code : "provider_error");
+    await finishSearch(eventId, e instanceof ApiErr ? e.code : "provider_error", meta.cache);
     return fail(c, e);
   }
 });
@@ -368,6 +374,16 @@ app.get("/api/admin/searches", async (c) => {
   try {
     requireAdmin(c);
     return c.json(await adminSearches(c.req.query()));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+app.get("/api/admin/costs", async (c) => {
+  c.header("cache-control", "private, no-store");
+  try {
+    requireAdmin(c);
+    return c.json(await adminCosts());
   } catch (e) {
     return fail(c, e);
   }

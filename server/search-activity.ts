@@ -34,8 +34,8 @@ export async function startSearch(c: Context, userId: string | null, username: s
   }
 }
 
-export async function finishSearch(id: string | null, outcome: string): Promise<void> {
+export async function finishSearch(id: string | null, outcome: string, cache?: "hit" | "miss"): Promise<void> {
   if (!id) return;
-  await q("UPDATE followcatch.search_events SET outcome = $2 WHERE id = $1", [id, outcome])
+  await q("UPDATE followcatch.search_events SET outcome = $2, cache = $3 WHERE id = $1", [id, outcome, cache ?? null])
     .catch((e) => console.warn("[search_activity] finish failed", e instanceof Error ? e.message : "unknown error"));
 }

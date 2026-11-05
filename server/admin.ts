@@ -3,7 +3,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Context } from "hono";
 import { q } from "./db.js";
-import { ApiErr } from "./service.js";
+import { ApiErr, budgets, weeklyLimit } from "./service.js";
 
 export function requireAdmin(c: Context) {
   const want = process.env.ADMIN_KEY ?? "";
@@ -102,5 +102,88 @@ export async function adminUsers() {
       checkouts: r.checkouts,
       lastSeenAt: iso(r.last_seen),
     })),
+  };
+}
+
+// ---- custos ----------------------------------------------------------------
+
+type PlanId = "starter" | "premium";
+
+/**
+ * Custo de dados (estimado, não é a fatura da Apify): por dia, por quem gastou, cache hit,
+ * custo por assinante na semana e gasto de visitantes por checkout concluído.
+ * Tudo em UTC, como os limites. Só leitura.
+ */
+export async function adminCosts() {
+  const num = (v: unknown) => Number(v ?? 0);
+  const [today, daily, byActor, cache, weekly, acquisition] = await Promise.all([
+    q<{ bucket: string | null; usd: string; runs: number }>(`
+      SELECT bucket, COALESCE(SUM(custo_est), 0) AS usd, count(*)::int AS runs FROM followcatch.runs
+      WHERE at >= (now() AT TIME ZONE 'UTC')::date GROUP BY bucket`),
+    q<{ day: string; bucket: string | null; usd: string; runs: number; failed: number }>(`
+      SELECT ((at AT TIME ZONE 'UTC')::date)::text AS day, bucket, COALESCE(SUM(custo_est), 0) AS usd,
+             count(*)::int AS runs, count(*) FILTER (WHERE NOT ok)::int AS failed
+      FROM followcatch.runs WHERE at >= ((now() AT TIME ZONE 'UTC')::date - 13)
+      GROUP BY 1, 2 ORDER BY 1 DESC`),
+    q<{ actor: string; runs: number; failed: number; itens: string; usd: string; ms: string }>(`
+      SELECT actor, count(*)::int AS runs, count(*) FILTER (WHERE NOT ok)::int AS failed,
+             COALESCE(SUM(itens), 0) AS itens, COALESCE(SUM(custo_est), 0) AS usd, COALESCE(AVG(ms), 0) AS ms
+      FROM followcatch.runs WHERE at >= now() - interval '30 days' GROUP BY actor ORDER BY usd DESC`),
+    q<{ hit: number; miss: number; hit7: number; miss7: number }>(`
+      SELECT count(*) FILTER (WHERE cache = 'hit' AND at >= (now() AT TIME ZONE 'UTC')::date)::int AS hit,
+             count(*) FILTER (WHERE cache = 'miss' AND at >= (now() AT TIME ZONE 'UTC')::date)::int AS miss,
+             count(*) FILTER (WHERE cache = 'hit')::int AS hit7,
+             count(*) FILTER (WHERE cache = 'miss')::int AS miss7
+      FROM followcatch.search_events WHERE at >= now() - interval '7 days'`),
+    q<{ user_id: string; email: string | null; plan: string | null; status: string | null; runs: number; failed: number; usd: string; used: number }>(`
+      SELECT substring(r.who from 6) AS user_id, u.email, s.plan, s.status, count(*)::int AS runs,
+             count(*) FILTER (WHERE NOT r.ok)::int AS failed, COALESCE(SUM(r.custo_est), 0) AS usd,
+             (SELECT count(*)::int FROM followcatch.searches x WHERE x.who = r.who
+               AND x.day >= date_trunc('week', now() AT TIME ZONE 'UTC')::date) AS used
+      FROM followcatch.runs r
+      LEFT JOIN followcatch.users u ON u.id = substring(r.who from 6)
+      LEFT JOIN followcatch.subscriptions s ON s.user_id = u.id
+      WHERE r.bucket = 'subscriber' AND r.at >= date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      GROUP BY r.who, u.email, s.plan, s.status ORDER BY usd DESC LIMIT 20`),
+    q<{ paid: number; visitor_usd: string }>(`
+      SELECT (SELECT count(*)::int FROM followcatch.checkouts WHERE completed_at >= now() - interval '30 days') AS paid,
+             (SELECT COALESCE(SUM(custo_est), 0) FROM followcatch.runs
+               WHERE bucket = 'visitor' AND at >= now() - interval '30 days') AS visitor_usd`),
+  ]);
+
+  const spent = (bucket: string | null) => num(today.find((r) => r.bucket === bucket)?.usd);
+  const b = budgets();
+  const days = new Map<string, { day: string; visitor: number; subscriber: number; unattributed: number; runs: number; failed: number }>();
+  for (const r of daily) {
+    const d = days.get(r.day) ?? { day: r.day, visitor: 0, subscriber: 0, unattributed: 0, runs: 0, failed: 0 };
+    const key = r.bucket === "visitor" ? "visitor" : r.bucket === "subscriber" ? "subscriber" : "unattributed";
+    d[key] += num(r.usd);
+    d.runs += r.runs;
+    d.failed += r.failed;
+    days.set(r.day, d);
+  }
+  const rate = (hit: number, miss: number) => (hit + miss > 0 ? hit / (hit + miss) : null);
+  const c = cache[0];
+  const subs = weekly.map((r) => {
+    const plan = r.plan === "premium" ? "premium" : "starter" as PlanId;
+    return {
+      userId: r.user_id, email: r.email, plan: r.plan, status: r.status, runs: r.runs, failed: r.failed,
+      usd: num(r.usd), quotaUsed: r.used, quotaLimit: weeklyLimit(plan),
+    };
+  });
+  const paid = acquisition[0].paid;
+  const visitorUsd30 = num(acquisition[0].visitor_usd);
+  return {
+    generatedAt: new Date().toISOString(),
+    today: {
+      totalUsd: spent(null) + spent("visitor") + spent("subscriber"),
+      visitorUsd: spent("visitor"), subscriberUsd: spent("subscriber"), unattributedUsd: spent(null),
+      globalLimitUsd: b.globalUsd, visitorLimitUsd: b.visitorUsd,
+    },
+    cache: { hitToday: c.hit, missToday: c.miss, rateToday: rate(c.hit, c.miss), hit7d: c.hit7, miss7d: c.miss7, rate7d: rate(c.hit7, c.miss7) },
+    daily: [...days.values()],
+    byActor: byActor.map((r) => ({ actor: r.actor, runs: r.runs, failed: r.failed, items: num(r.itens), usd: num(r.usd), avgMs: Math.round(num(r.ms)) })),
+    subscribersThisWeek: subs,
+    acquisition30d: { visitorUsd: visitorUsd30, paidCheckouts: paid, visitorUsdPerPaid: paid > 0 ? visitorUsd30 / paid : null },
   };
 }

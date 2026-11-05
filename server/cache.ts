@@ -49,41 +49,69 @@ export async function genderSetMany(pairs: [string, Gender][]): Promise<void> {
 
 // ---- custo -----------------------------------------------------------------
 
-export async function logRun(r: { actor: string; username: string; itens: number; custo: number; ms: number; ok: boolean }) {
-  await q("INSERT INTO followcatch.runs (actor, username, itens, custo_est, ms, ok) VALUES ($1, $2, $3, $4, $5, $6)", [
-    r.actor, r.username, r.itens, r.custo, r.ms, r.ok,
-  ]);
+export type Bucket = "visitor" | "subscriber";
+
+export async function logRun(r: {
+  actor: string; username: string; itens: number; custo: number; ms: number; ok: boolean;
+  who?: string; bucket?: Bucket;
+}) {
+  await q(
+    "INSERT INTO followcatch.runs (actor, username, itens, custo_est, ms, ok, who, bucket) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    [r.actor, r.username, r.itens, r.custo, r.ms, r.ok, r.who ?? null, r.bucket ?? null],
+  );
 }
 
-/** O teto diário zera à meia-noite UTC. */
-export async function spentToday(): Promise<{ usd: number; runs: number }> {
+/** Gasto estimado de hoje (zera à meia-noite UTC). Sem `bucket` = total (o disjuntor global). */
+export async function spentToday(bucket?: Bucket): Promise<{ usd: number; runs: number }> {
   const r = await one<{ usd: string; runs: string }>(
     `SELECT COALESCE(SUM(custo_est), 0) AS usd, COUNT(*) AS runs FROM followcatch.runs
-      WHERE at >= (now() AT TIME ZONE 'UTC')::date`,
+      WHERE at >= (now() AT TIME ZONE 'UTC')::date AND ($1::text IS NULL OR bucket = $1)`,
+    [bucket ?? null],
   );
   return { usd: Number(r?.usd ?? 0), runs: Number(r?.runs ?? 0) };
 }
 
-// ---- limite de buscas novas por dia ----------------------------------------
+// ---- limite de buscas novas por dia e por semana ---------------------------
 
 /**
- * Uma "busca" = um @ novo pra este `who` hoje (who = "ip:<ip>" ou "user:<id>").
- * profile + following + followers do mesmo @ caem na mesma linha, então contam como 1.
- * Devolve false se já gastou as buscas do dia com outros @.
+ * Uma "busca" = um @ novo pra este `who` em um dia (who = "ip:<ip>" ou "user:<id>").
+ * profile + following + followers do mesmo @ no mesmo dia caem na mesma linha, então contam como 1.
+ * Repetir um @ já contado hoje é grátis ("ok"). "new" = esta chamada registrou o @ (e pode devolver
+ * a cota com `releaseClaim` se a coleta falhar). Barrado: "daily" (limite do dia) ou "weekly"
+ * (limite da semana, que começa na segunda 00:00 UTC; `weekly` null = sem limite semanal).
  */
-export async function claimSearch(who: string, username: string, limit: number): Promise<boolean> {
+export async function claimSearch(
+  who: string,
+  username: string,
+  limits: { daily: number; weekly: number | null },
+): Promise<"new" | "ok" | "daily" | "weekly"> {
   const ja = await one(
     "SELECT 1 FROM followcatch.searches WHERE who = $1 AND day = (now() AT TIME ZONE 'UTC')::date AND username = $2",
     [who, username],
   );
-  if (ja) return true;
-  if ((await searchesToday(who)) >= limit) return false;
+  if (ja) return "ok";
+  if ((await searchesToday(who)) >= limits.daily) return "daily";
+  if (limits.weekly !== null && (await searchesThisWeek(who)) >= limits.weekly) return "weekly";
   await q(
     `INSERT INTO followcatch.searches (who, day, username) VALUES ($1, (now() AT TIME ZONE 'UTC')::date, $2)
      ON CONFLICT DO NOTHING`,
     [who, username],
   );
-  return true;
+  return "new";
+}
+
+/** Devolve a cota de uma busca registrada hoje: usado quando a coleta falhou por erro nosso ou do provedor. */
+export async function releaseClaim(who: string, username: string): Promise<void> {
+  await q("DELETE FROM followcatch.searches WHERE who = $1 AND day = (now() AT TIME ZONE 'UTC')::date AND username = $2", [who, username]);
+}
+
+/** Buscas (um @ por dia) desta semana UTC; a semana começa na segunda-feira. */
+export async function searchesThisWeek(who: string): Promise<number> {
+  const r = await one<{ n: string }>(
+    "SELECT COUNT(*) AS n FROM followcatch.searches WHERE who = $1 AND day >= date_trunc('week', now() AT TIME ZONE 'UTC')::date",
+    [who],
+  );
+  return Number(r?.n ?? 0);
 }
 
 export async function searchesToday(who: string): Promise<number> {
