@@ -32,6 +32,9 @@ function SearchFlow({ raw }: { raw: string }) {
   const [readyAt, setReadyAt] = useState<number | null>(null);
 
   const profileOk = s.profile.status === "ok";
+  // A primeira aba carrega durante a animação, pra estar pronta quando a prévia abrir. A outra só no clique.
+  const { ensure } = s;
+  useEffect(() => { if (profileOk) ensure("following"); }, [profileOk, ensure]);
   useEffect(() => {
     if (profileOk && readyAt === null) setReadyAt(Math.max(Date.now(), start.current + FIND_MIN));
   }, [profileOk, readyAt]);
@@ -73,7 +76,7 @@ function SearchFlow({ raw }: { raw: string }) {
         <Sparkles />
         {showPreview ? (
           <>
-            <Preview profile={s.profile.data!} following={s.following} followers={s.followers} gender={s.gender} />
+            <Preview profile={s.profile.data!} following={s.following} followers={s.followers} gender={s.gender} ensure={ensure} />
             <div className="mx-auto mt-10 max-w-3xl">
               <p className="mb-3 text-center text-sm font-medium text-gray-500">Check another account</p>
               <SearchBar ref={inputRef} />

@@ -233,6 +233,10 @@ function Result({ raw, inputRef }: { raw: string; inputRef: React.RefObject<HTML
   const s = useSearch(raw);
   const [tab, setTab] = useState<"following" | "followers">("following");
   useEffect(() => { document.title = `@${s.username} · Dashboard | FollowCatch`; }, [s.username]);
+  // Só a aba aberta é coletada (cada lista é uma coleta paga); a outra carrega no clique.
+  const { ensure } = s;
+  const profileOk = s.profile.status === "ok";
+  useEffect(() => { if (profileOk) ensure(tab); }, [profileOk, ensure, tab]);
 
   if (s.profile.status === "error")
     return (

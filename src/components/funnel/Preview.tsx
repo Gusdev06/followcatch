@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { isLocked, type FollowItem, type FollowList, type Gender, type LockedItem, type Profile } from "../../lib/types";
 import { Button } from "../ui";
@@ -196,10 +196,13 @@ function ListPanel({ slot, kind, target, gender }: { slot: Slot<FollowList>; kin
 }
 
 /* ---------- prévia completa ---------- */
-export function Preview({ profile, following, followers, gender }: {
+export function Preview({ profile, following, followers, gender, ensure }: {
   profile: Profile; following: Slot<FollowList>; followers: Slot<FollowList>; gender: Gender | null;
+  /** Pede a lista da aba (só a aba aberta é coletada; a outra só quando a pessoa clica). */
+  ensure: (kind: "following" | "followers") => void;
 }) {
   const [tab, setTab] = useState<"following" | "followers">("following");
+  useEffect(() => { ensure(tab); }, [ensure, tab]);
   const u = profile.username;
   const tabs = [["followers", "Recent Followers"], ["following", "Recent Following"]] as const;
   return (
