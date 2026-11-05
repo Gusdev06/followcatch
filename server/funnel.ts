@@ -137,10 +137,14 @@ function loadEvents(range: Range) {
   );
 }
 
-async function buyerIds() {
-  const rows = await q<{ user_id: string }>("SELECT DISTINCT user_id FROM followcatch.checkouts WHERE completed_at IS NOT NULL");
-  return new Set(rows.map((r) => r.user_id));
+/** Última compra de cada conta. Só conta como compra do visitante se veio depois da chegada dele. */
+async function lastPurchases() {
+  const rows = await q<{ user_id: string; at: Date }>("SELECT user_id, max(completed_at) AS at FROM followcatch.checkouts WHERE completed_at IS NOT NULL GROUP BY user_id");
+  return new Map(rows.map((r) => [r.user_id, new Date(r.at).getTime()]));
 }
+
+const boughtAfterArrival = (l: { user: string | null; first: Date }, purchases: Map<string, number>) =>
+  !!l.user && (purchases.get(l.user) ?? 0) >= new Date(l.first).getTime();
 
 type Lead = { steps: Set<string>; country: string | null; device: string | null; ad: string | null; campaign: string | null; placement: string | null; user: string | null; first: Date; last: Date };
 
@@ -163,9 +167,9 @@ function groupLeads(events: Event[]) {
 }
 
 export async function funnelReport(range: Range) {
-  const [events, buyers] = await Promise.all([loadEvents(range), buyerIds()]);
+  const [events, purchases] = await Promise.all([loadEvents(range), lastPurchases()]);
   const leads = groupLeads(events);
-  const isBuyer = (l: Lead) => !!l.user && buyers.has(l.user);
+  const isBuyer = (l: Lead) => boughtAfterArrival(l, purchases);
   const steps = STEPS.map(([key, label]) => ({ key, label, n: [...leads.values()].filter((l) => l.steps.has(key)).length }));
 
   const cohorts = (pick: (l: Lead) => string | null, limit: number) => {
@@ -200,7 +204,7 @@ const STEP_POS = new Map<string, number>(STEPS.map(([k], i) => [k, i]));
 const STEP_LABEL = new Map<string, string>(STEPS.map(([k, l]) => [k, l]));
 
 export async function visitorsReport(range: Range) {
-  const [events, buyers] = await Promise.all([loadEvents(range), buyerIds()]);
+  const [events, purchases] = await Promise.all([loadEvents(range), lastPurchases()]);
   const leads = groupLeads(events);
   const users = [...new Set([...leads.values()].map((l) => l.user).filter(Boolean))] as string[];
   const emails = new Map((users.length
@@ -222,7 +226,7 @@ export async function visitorsReport(range: Range) {
     return {
       leadId, first: new Date(l.first).toISOString(), last: new Date(l.last).toISOString(),
       country: l.country, device: l.device, ad: l.ad, campaign: l.campaign, placement: l.placement, furthest,
-      clickedPay: l.steps.has("pay_click"), email: l.user ? emails.get(l.user) ?? null : null, buyer: !!l.user && buyers.has(l.user),
+      clickedPay: l.steps.has("pay_click"), email: l.user ? emails.get(l.user) ?? null : null, buyer: boughtAfterArrival(l, purchases),
       // revisão automática da Meta: abre pela coluna da direita (desktop) e não passa da entrada
       review: /right_column/i.test(l.placement ?? "") && l.steps.size <= 1,
     };
@@ -249,7 +253,7 @@ export async function liveReport(hoursRaw: string | undefined) {
   }>(
     `SELECT s.lead_id, s.country, s.region, s.city, s.device, s.ad, s.campaign, s.step, s.beats, s.first_seen, s.last_seen,
             extract(epoch FROM (now() - s.last_seen))::int AS idle_s, u.email,
-            EXISTS (SELECT 1 FROM followcatch.checkouts k WHERE k.user_id = u.id AND k.completed_at IS NOT NULL) AS bought
+            EXISTS (SELECT 1 FROM followcatch.checkouts k WHERE k.user_id = u.id AND k.completed_at >= s.first_seen) AS bought
        FROM followcatch.live_sessions s
        LEFT JOIN LATERAL (
          SELECT e.user_id FROM followcatch.funnel_events e

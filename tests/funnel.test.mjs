@@ -66,7 +66,8 @@ test('robô, etapa desconhecida, id inválido e corpo gigante não gravam', asyn
 
 test('funil conta visitante único por etapa e compra só com checkout concluído', async () => {
   await db.query(`INSERT INTO followcatch.users (id, email, password_hash) VALUES ('u1', 'a@b.test', 'x'), ('u2', 'c@d.test', 'x')`);
-  await db.query(`INSERT INTO followcatch.checkouts (ref, user_id, plan, cycle, completed_at) VALUES ('c1', 'u1', 'premium', 'weekly', now()), ('c2', 'u2', 'premium', 'weekly', NULL)`);
+  await db.query(`INSERT INTO followcatch.users (id, email, password_hash) VALUES ('u3', 'antigo@b.test', 'x')`);
+  await db.query(`INSERT INTO followcatch.checkouts (ref, user_id, plan, cycle, completed_at) VALUES ('c3', 'u3', 'premium', 'weekly', now() - interval '20 days')`);
   const ev = async (lead, step, user = null, ad = null) => db.query(
     `INSERT INTO followcatch.funnel_events (lead_id, step, user_id, country, meta) VALUES ($1, $2, $3, 'US', $4::jsonb)`,
     [lead, step, user, JSON.stringify(ad ? { utm_content: ad, device: 'iPhone · Instagram' } : { device: 'Mac · Chrome' })],
@@ -76,16 +77,19 @@ test('funil conta visitante único por etapa e compra só com checkout concluíd
   await ev('lead-comprou', 'checkout', 'u1');
   await ev('lead-so-abriu', 'checkout', 'u2');
   await ev('lead-so-viu', 'landing');
+  await ev('lead-comprador-antigo', 'landing', 'u3');
+  await db.query(`INSERT INTO followcatch.checkouts (ref, user_id, plan, cycle, completed_at) VALUES ('c1', 'u1', 'premium', 'weekly', now() + interval '1 second'), ('c2', 'u2', 'premium', 'weekly', NULL)`);
 
   const f = await admin('/api/admin/funnel?range=7d');
-  assert.equal(f.visitors, 3);
-  assert.equal(f.steps.find((s) => s.key === 'landing').n, 2);
+  assert.equal(f.visitors, 4);
+  assert.equal(f.steps.find((s) => s.key === 'landing').n, 3);
   assert.equal(f.steps.find((s) => s.key === 'checkout').n, 2);
   assert.equal(f.buyers, 1);
   assert.equal(f.byAd.find((c) => c.key === 'img|1').buyers, 1);
 
   const v = await admin('/api/admin/visitors?range=today');
-  assert.equal(v.total, 3);
+  assert.equal(v.total, 4);
+  assert.equal(v.people.find((p) => p.leadId === 'lead-comprador-antigo').buyer, false);
   assert.equal(v.bought, 1);
   assert.equal(v.people.find((p) => p.leadId === 'lead-so-abriu').email, 'c@d.test');
   assert.equal(v.people.find((p) => p.leadId === 'lead-comprou').furthest, 'Checkout');

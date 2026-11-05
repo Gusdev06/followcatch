@@ -16,7 +16,7 @@ Com anúncio rodando, é preciso ver onde a pessoa desiste e qual anúncio traz 
 
 ## Dados
 
-Identificador aleatório por navegador em `localStorage`. **Sem IP**, diferente do painel do Kingdom: o AGENTS.md proíbe IP cru na API. "Compra" é visitante com conta e checkout concluído: quem assina em outro navegador sem conta ligada ao visitante não entra.
+Identificador aleatório por navegador em `localStorage`. **Sem IP**, diferente do painel do Kingdom: o AGENTS.md proíbe IP cru na API. "Compra" é visitante com conta e checkout concluído depois da chegada dele (comprador antigo que só visitou não conta): quem assina em outro navegador sem conta ligada ao visitante não entra.
 
 ## Custo
 
