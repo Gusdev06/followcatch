@@ -96,6 +96,7 @@ Os valores ficam no `.env` local e na Vercel. Nunca no Git.
 | `APP_URL` | URL pública (links de e-mail e retorno do checkout). |
 | `ADMIN_KEY` | Acesso ao `/admin`. |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PORTAL_CONFIG`, `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe. |
+| `UTMIFY_API_TOKEN` | Envio de vendas à UTMify. Sem ele, o envio fica desligado. |
 | `PAYMENT_PROVIDER`, `VITE_PAYMENT_PROVIDER` | `stripe` (padrão) ou `paymentkit`. |
 | `PAYMENTKIT_*`, `VITE_PAYMENTKIT_PUBLISHABLE_KEY` | PaymentKit (desligado). |
 | `RESEND_API_KEY`, `EMAIL_FROM` | E-mail de reset de senha. |

@@ -11,6 +11,7 @@ import Stripe from "stripe";
 import type { Cycle, Me, PlanId } from "../src/lib/types.js";
 import { one, q } from "./db.js";
 import type { User } from "./auth.js";
+import { TRACKING_KEYS, buildOrder, sendUtmifyOrder, type Tracking, type UtmifyStatus } from "./utmify.js";
 
 const APP_URL = () => (process.env.APP_URL || "https://followcatch.vercel.app").replace(/\/+$/, "");
 
@@ -155,7 +156,7 @@ function shape(
  * não criar outra assinatura.
  */
 export async function createStripeEmbedded(
-  user: User, plan: PlanId, cycle: Cycle, username: string | null, promoCode: string | null,
+  user: User, plan: PlanId, cycle: Cycle, username: string | null, promoCode: string | null, tracking: Tracking = {}, ip?: string, country?: string,
 ): Promise<StripeEmbedded> {
   const s = stripe();
   const customer = await ensureCustomer(user);
@@ -189,7 +190,8 @@ export async function createStripeEmbedded(
         payment_behavior: "default_incomplete",
         payment_settings: { save_default_payment_method: "on_subscription" },
         ...(promo ? { discounts: [{ promotion_code: promo.id }] } : {}),
-        metadata: { user_id: user.id, plan, cycle, username: username ?? "", ref, app: "followcatch" },
+        // as UTMs ficam na assinatura para as renovações herdarem a origem da venda
+        metadata: { user_id: user.id, plan, cycle, username: username ?? "", ref, app: "followcatch", ...tracking, ...(ip && ip !== "unknown" ? { client_ip: ip } : {}), ...(country ? { client_country: country } : {}) },
         expand: EXPAND,
       },
       { idempotencyKey: `fc-sub-${ref}` },
@@ -423,8 +425,94 @@ function subIdOfInvoice(inv: Stripe.Invoice): string | null {
   return typeof v === "string" ? v : v?.id ?? null;
 }
 
+// ---- UTMify ------------------------------------------------------------------
+
+/** A conta Stripe é compartilhada com o Heirloom Jar: só assinatura nossa vai para a UTMify. */
+const isOurs = (sub: Stripe.Subscription) => sub.metadata?.app === "followcatch";
+
+/** A UTMify recusa customer.ip nulo; assinaturas anteriores a esta captura não têm IP. */
+const NO_IP = "0.0.0.0";
+/** Idem para customer.country; EUA é o mercado do produto. */
+const NO_COUNTRY = "US";
+
+const idOf = (v: string | { id: string } | null | undefined) => (typeof v === "string" ? v : v?.id ?? null);
+
+/** Taxa real da cobrança na moeda da fatura. A conta liquida em BRL; a fatura é em USD. */
+async function feeCents(paymentIntentId: string | null, currency: string): Promise<number> {
+  if (!paymentIntentId) return 0;
+  const pi = await stripe().paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge.balance_transaction"] });
+  const charge = pi.latest_charge;
+  const bt = charge && typeof charge === "object" ? charge.balance_transaction : null;
+  if (!bt || typeof bt !== "object") return 0;
+  if (bt.currency === currency) return bt.fee;
+  return bt.exchange_rate ? Math.round(bt.fee / bt.exchange_rate) : 0;
+}
+
+/** Monta e envia o pedido. orderId = id da fatura: cada renovação é uma venda. */
+async function reportInvoice(inv: Stripe.Invoice, status: UtmifyStatus, refundedAt?: Date): Promise<string> {
+  if (inv.amount_paid <= 0) return "fatura zerada";
+  const subId = subIdOfInvoice(inv);
+  if (!subId) return "fatura sem assinatura";
+  const sub = await stripe().subscriptions.retrieve(subId);
+  if (!isOurs(sub)) return "outro produto";
+
+  const payments = await stripe().invoicePayments.list({ invoice: inv.id, limit: 1 });
+  const fee = await feeCents(idOf(payments.data[0]?.payment.payment_intent), inv.currency);
+  const pc = planOf(sub);
+  const planLabel = pc ? `${pc.plan[0].toUpperCase()}${pc.plan.slice(1)} ${pc.cycle}` : null;
+  const tracking: Tracking = {};
+  for (const key of TRACKING_KEYS) {
+    if (sub.metadata?.[key]) tracking[key] = sub.metadata[key];
+  }
+  const email = inv.customer_email ?? `${idOf(inv.customer) ?? inv.id}@customers.followcatch.invalid`;
+
+  const sent = await sendUtmifyOrder(
+    buildOrder({
+      orderId: inv.id,
+      status,
+      createdAt: new Date(inv.created * 1000),
+      approvedAt: new Date((inv.status_transitions?.paid_at ?? inv.created) * 1000),
+      refundedAt: refundedAt ?? null,
+      email,
+      name: inv.customer_name || email.split("@")[0],
+      country: inv.customer_address?.country || sub.metadata?.client_country || NO_COUNTRY,
+      ip: sub.metadata?.client_ip || NO_IP,
+      productId: pc ? STRIPE_PRICES[pc.plan][pc.cycle] : subId,
+      productName: planLabel ? `FollowCatch ${planLabel}` : "FollowCatch",
+      planId: pc ? `${pc.plan}_${pc.cycle}` : null,
+      planName: planLabel,
+      amountCents: inv.amount_paid,
+      feeCents: fee,
+      currency: inv.currency,
+      tracking,
+      isTest: !inv.livemode,
+    }),
+  );
+  return sent ? `utmify ${status} ${inv.id}` : "utmify desligada";
+}
+
+/** Reembolso e disputa só apontam para o pagamento: acha a fatura pelo PaymentIntent. */
+async function reportPayment(paymentIntent: string | { id: string } | null, status: UtmifyStatus, refundedAt?: Date): Promise<string> {
+  const id = idOf(paymentIntent);
+  if (!id) return "sem pagamento";
+  const r = await stripe().invoicePayments.list({ payment: { type: "payment_intent", payment_intent: id }, limit: 1 });
+  const invoiceId = idOf(r.data[0]?.invoice);
+  if (!invoiceId) return "sem fatura (outro produto)";
+  return reportInvoice(await stripe().invoices.retrieve(invoiceId), status, refundedAt);
+}
+
 async function applyStripeEvent(ev: Stripe.Event): Promise<string> {
   switch (ev.type) {
+    case "charge.refunded": {
+      const charge = ev.data.object;
+      if (!charge.refunded) return "reembolso parcial: venda mantida";
+      return reportPayment(charge.payment_intent, "refunded", new Date(ev.created * 1000));
+    }
+    case "charge.dispute.created":
+      return reportPayment(ev.data.object.payment_intent, "chargedback", new Date(ev.created * 1000));
+    case "charge.dispute.closed":
+      // disputa ganha: o dinheiro voltou, a venda volta a contar
+      return ev.data.object.status === "won" ? reportPayment(ev.data.object.payment_intent, "paid") : "disputa encerrada";
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
@@ -438,7 +526,8 @@ async function applyStripeEvent(ev: Stripe.Event): Promise<string> {
       if (!subId) return "fatura sem assinatura";
       const sub = await stripe().subscriptions.retrieve(subId);
       const uid = await applyStripeSubscription(sub);
-      return uid ? `assinatura relida ${sub.id} (${sub.status}) → ${uid}` : "assinatura relida sem usuário";
+      const utmify = ev.type === "invoice.paid" ? await reportInvoice(ev.data.object, "paid") : "";
+      return `${uid ? `assinatura relida ${sub.id} (${sub.status}) → ${uid}` : "assinatura relida sem usuário"} ${utmify}`.trim();
     }
     default:
       return "ignorado";

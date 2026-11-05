@@ -14,6 +14,7 @@ import { q } from "./db.js";
 import { classify } from "./gender.js";
 import { ApiErr, budgets, cachedProfile, getList, getProfile, normalizeUsername, teaser, type LookupMeta, type Who } from "./service.js";
 import { finishSearch, startSearch } from "./search-activity.js";
+import { cleanTracking } from "./utmify.js";
 
 export const app = new Hono();
 
@@ -255,7 +256,7 @@ app.post("/api/checkout/embedded", async (c) => {
     if (rawPromo && !/^[A-Za-z0-9_-]{2,40}$/.test(rawPromo)) throw new ApiErr("invalid", 400, "That code isn't valid.");
     if (PROVIDER() === "stripe") {
       try {
-        return c.json(await createStripeEmbedded(u, plan, cycle, username, rawPromo || null));
+        return c.json(await createStripeEmbedded(u, plan, cycle, username, rawPromo || null, cleanTracking(b.tracking), ipOf(c), c.req.header("x-vercel-ip-country")));
       } catch (e) {
         if (e instanceof StripeFail && e.status === 400) throw new ApiErr("invalid", 400, e.message);
         console.error("[checkout/embedded stripe]", e instanceof Error ? e.message : e);

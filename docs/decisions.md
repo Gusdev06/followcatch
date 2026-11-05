@@ -11,6 +11,12 @@ Formato:
 **Consequências:** o que isso implica ou restringe.
 ```
 
+## 2026-11-05 — Vendas vão à UTMify pela API, não pela integração nativa Stripe
+
+**Decisão:** o webhook da Stripe envia venda, renovação, reembolso e chargeback à API de pedidos da UTMify. As UTMs são capturadas no front e gravadas no metadata da assinatura.
+**Motivo:** o modo Stripe do script da UTMify só grava UTM em `client_reference_id`, campo de link/Checkout Session, e aqui a cobrança é Subscription + Payment Element. A conta Stripe também é compartilhada com o Heirloom Jar; o envio filtra `metadata.app = followcatch`.
+**Consequências:** a API exige `customer.ip` e `customer.country`, gravados no checkout (`client_ip`, `client_country`); assinaturas antigas usam `0.0.0.0` e `US`. O IP do comprador passa a ir à UTMify. O webhook nativo não pode ficar ativo junto, para não duplicar venda.
+
 ---
 
 ## 2026-11-04 — Toda feature paga passa por análise de custo

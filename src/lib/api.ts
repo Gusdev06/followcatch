@@ -1,4 +1,5 @@
 import type { ApiError, Cycle, FollowList, Me, PlanId, Profile } from "./types";
+import { getTracking } from "./utm";
 
 export class ApiFail extends Error {
   constructor(public code: ApiError["error"], message: string, public status = 0) { super(message); }
@@ -78,7 +79,7 @@ export const api = {
   checkoutEmbedded: (plan: PlanId, cycle: Cycle, username?: string, promo?: string) =>
     post<EmbeddedCheckout>("/api/checkout/embedded", { plan, cycle, ...(username ? { username } : {}), ...(promo ? { promo } : {}) }),
   checkoutStripe: (plan: PlanId, cycle: Cycle, username?: string, promo?: string) =>
-    post<StripeCheckout>("/api/checkout/embedded", { plan, cycle, ...(username ? { username } : {}), ...(promo ? { promo } : {}) }),
+    post<StripeCheckout>("/api/checkout/embedded", { plan, cycle, tracking: getTracking(), ...(username ? { username } : {}), ...(promo ? { promo } : {}) }),
   welcome: (session: string) => get<Me>(`/api/welcome?session=${encodeURIComponent(session)}`),
   billingPortal: () => post<{ url: string }>("/api/billing-portal"),
   searches: () => get<{ items: RecentSearch[] }>("/api/me/searches"),
