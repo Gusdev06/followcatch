@@ -104,9 +104,9 @@ export async function gate(kind: Kind, username: string, who: Who): Promise<Clai
   return r === "new" ? { who: key, username } : null;
 }
 
-async function run(kind: Kind, username: string, who: Who) {
+async function run(kind: Kind, username: string, who: Who, timeoutS?: number) {
   try {
-    const r = await runActor(kind, username);
+    const r = await runActor(kind, username, timeoutS);
     await logRun({ actor: r.actor, username, itens: r.items.length, custo: r.cost, ms: r.ms, ok: true, who: whoKey(who), bucket: bucketOf(who) });
     console.log(`[run] ${kind} @${username}: ${r.items.length} itens, ${r.ms} ms, ~US$${r.cost.toFixed(4)}`);
     return r;
@@ -177,6 +177,25 @@ export async function cachedProfile(username: string): Promise<Profile | null> {
 type ListEntry = { items: MiniAccount[]; fetchedAt: string };
 
 /** Lista completa (o cache guarda tudo). O recorte de teaser é feito em `teaser()`. */
+// O actor das listas falha de forma intermitente: o run bom leva de 3 a 27 s; o ruim gasta ~65 s e
+// devolve 0 item, sem custo. Desistir cedo e repetir cabe no limite de 120 s da Vercel (3 x ~31 s).
+const LIST_ATTEMPTS = 3;
+const LIST_ATTEMPT_TIMEOUT_S = 30;
+
+/** Lista do provedor, repetindo falha ou vazio de um perfil que tem gente. Só item entregue é cobrado. */
+async function fetchListItems(kind: "following" | "followers", username: string, who: Who, expected: number) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const items = toList((await run(kind, username, who, LIST_ATTEMPT_TIMEOUT_S)).items, username);
+      if (items.length > 0 || expected === 0) return items;
+      // Vazio com gente no perfil é falha do provedor, não lista vazia de verdade.
+      if (attempt >= LIST_ATTEMPTS) throw new ApiErr("provider_error", 502, "Data provider returned no results. Please try again.");
+    } catch (e) {
+      if (attempt >= LIST_ATTEMPTS) throw e;
+    }
+  }
+}
+
 export async function getList(kind: "following" | "followers", username: string, who: Who): Promise<FollowList> {
   const key = `${kind}:${username}`;
   let entry = await cacheGet<ListEntry>(key);
@@ -189,14 +208,8 @@ export async function getList(kind: "following" | "followers", username: string,
       if (again) return again;
       const claim = await gate(kind, username, who);
       try {
-        const r = await run(kind, username, who);
-        const e: ListEntry = { items: toList(r.items, username), fetchedAt: new Date().toISOString() };
-        // Lista vazia de um perfil que tem gente é falha do provedor (já vimos o actor devolver
-        // "sucesso" com 0 itens após um 502 interno), não uma lista vazia de verdade.
         const expected = kind === "following" ? p.following : p.followers;
-        if (e.items.length === 0 && expected > 0) {
-          throw new ApiErr("provider_error", 502, "Data provider returned no results. Please try again.");
-        }
+        const e: ListEntry = { items: await fetchListItems(kind, username, who, expected), fetchedAt: new Date().toISOString() };
         if (e.items.length > 0) await cacheSet(key, e, TTL.list);
         return e;
       } catch (err) {

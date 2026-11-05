@@ -124,3 +124,7 @@ Conferidos em datasets reais em 2026-10-15:
 
 - **Vercel:** front estático e uma única função Node (`api/index.ts`) com `maxDuration` de 120 s. O proxy de imagem (`/api/img`) usa o CDN da Vercel como cache.
 - **Supabase (Postgres):** banco compartilhado com outros projetos; o FollowCatch usa só o schema `followcatch`. Conexão via pooler de transação.
+
+## Falha intermitente do actor das listas (2026-11-05)
+
+No plano Starter, cerca de metade dos runs de `scraping_solutions` gastou ~65 s e devolveu 0 item com status de sucesso, sem custo; o run bom leva de 3 a 27 s. A mesma conta costuma responder ao repetir. Por isso `getList` faz até 3 tentativas de 30 s (`timeout=30` responde HTTP 400 com status `TIMED-OUT`). Se a taxa de falha seguir alta, avaliar outro actor, validando a ordem de recência.

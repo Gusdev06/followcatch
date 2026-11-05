@@ -87,6 +87,17 @@ test('lista vazia de um perfil que tem gente é erro, não cache nem cota gasta'
   await assert.rejects(getList('following', 'alvo', visitor), (e) => e instanceof ApiErr && e.code === 'provider_error' && e.status === 502);
   assert.deepEqual(await searches(), []);
   assert.equal((await db.query(`SELECT 1 FROM followcatch.kv WHERE key = 'following:alvo'`)).rows.length, 0);
+  assert.equal(apifyCalls.length, 3);
+});
+
+test('lista vazia ou run recusado é repetido, com prazo curto, até vir resultado', async () => {
+  await seedProfile(5, 7);
+  const respostas = [{ error: { message: 'status: TIMED-OUT' } }, [], listItems(5)];
+  apify = () => respostas.shift();
+  assert.equal((await getList('following', 'alvo', visitor)).total, 5);
+  assert.equal(apifyCalls.length, 3);
+  assert.ok(apifyCalls.every((u) => u.includes('timeout=30&')));
+  assert.equal((await searches()).length, 1);
 });
 
 test('lista com itens é cacheada e uma segunda leitura não chama a Apify', async () => {
@@ -104,6 +115,7 @@ test('perfil com 0 seguindo de verdade continua devolvendo lista vazia', async (
   await seedProfile(0, 0);
   apify = () => [];
   assert.equal((await getList('following', 'alvo', visitor)).total, 0);
+  assert.equal(apifyCalls.length, 1);
 });
 
 test('falha da lista não devolve a cota que o perfil já tinha gasto', async () => {

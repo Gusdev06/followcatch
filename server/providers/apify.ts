@@ -53,14 +53,15 @@ export class ProviderError extends Error {}
 
 export type RunResult = { items: Record<string, unknown>[]; actor: string; ms: number; cost: number };
 
-export async function runActor(kind: Kind, username: string): Promise<RunResult> {
+/** `timeoutS`: a Apify encerra o run nesse prazo e responde erro (status TIMED-OUT). */
+export async function runActor(kind: Kind, username: string, timeoutS = 110): Promise<RunResult> {
   const a = ACTORS[kind];
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new ProviderError("APIFY_TOKEN não configurado no server.");
 
   const url =
     `https://api.apify.com/v2/acts/${a.slug}/run-sync-get-dataset-items` +
-    `?token=${encodeURIComponent(token)}&timeout=110&maxTotalChargeUsd=${a.maxChargeUsd}`;
+    `?token=${encodeURIComponent(token)}&timeout=${timeoutS}&maxTotalChargeUsd=${a.maxChargeUsd}`;
   const t0 = Date.now();
   let resp: Response;
   try {
@@ -68,12 +69,12 @@ export async function runActor(kind: Kind, username: string): Promise<RunResult>
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(a.input(username)),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout((timeoutS + 10) * 1000),
     });
   } catch (e) {
     const n = e instanceof Error ? e.name : "";
     throw new ProviderError(
-      n === "TimeoutError" || n === "AbortError" ? `Provedor não respondeu em 120 s (${kind}).` : `Falha de rede no provedor (${kind}).`,
+      n === "TimeoutError" || n === "AbortError" ? `Provedor não respondeu em ${timeoutS + 10} s (${kind}).` : `Falha de rede no provedor (${kind}).`,
     );
   }
   const raw = await resp.text();
