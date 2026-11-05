@@ -1,6 +1,6 @@
 # Funil, Visitantes e Ao vivo no /admin
 
-**Estado:** em desenvolvimento
+**Estado:** no ar
 **Planos:** interno
 **Atualizado em:** 2026-11-05
 
